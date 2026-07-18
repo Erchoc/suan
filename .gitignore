@@ -1,0 +1,74 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+dist/
+.idea/
+
+# dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env
+.env*.local
+
+# Turborepo
+.turbo
+
+# typescript
+*.tsbuildinfo
+
+.vscode
+
+.yarn
+.dmux/
+
+# 题目生成进度文件（本地状态，不托管）
+gen-progress.json
+.worktrees/
+docs/superpowers/
+
+# 题目生成中间产物（原始未校验，前端不使用）
+input.json
+
+# PWA 开发模式构建输出
+dev-dist/
+
+# AI 工具运行时产物
+.playwright-mcp/
+.playwright-cli/
+/output/playwright/
+.superpowers/
+
+# Cloudflare 本地状态与密钥
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+wrangler.json
+
+# Codex 长任务工作记录（不属于产品源码）
+task_plan.md
+findings.md
+progress.md
