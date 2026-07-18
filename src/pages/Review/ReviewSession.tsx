@@ -1,10 +1,10 @@
+import { AnimatePresence, motion } from 'framer-motion';
+import { CheckCircle2, ChevronLeft, ChevronRight, Menu, X, XCircle } from 'lucide-react';
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, XCircle, ChevronLeft, ChevronRight, Menu, X } from 'lucide-react';
-import { useReviewStore } from '../../stores/reviewStore';
+import { useNavigate, useParams } from 'react-router-dom';
 import QuestionCard from '../../components/QuestionCard/QuestionCard';
 import Button from '../../components/ui/Button';
+import { useReviewStore } from '../../stores/reviewStore';
 import type { QuestionType, ReviewResult } from '../../types';
 
 function isAnswered(
@@ -14,28 +14,47 @@ function isAnswered(
   choiceAnswer: string | undefined,
 ): boolean {
   const hasBlanks =
-    blankCount > 0 && answers.length >= blankCount && answers.slice(0, blankCount).every(a => a?.trim());
+    blankCount > 0 &&
+    answers.length >= blankCount &&
+    answers.slice(0, blankCount).every(a => a?.trim());
   const hasChoice = !!choiceAnswer;
   switch (qType) {
-    case 'fill_blank': return hasBlanks;
-    case 'choice':     return hasChoice;
-    case 'mixed':      return hasBlanks && hasChoice;
-    default:           return hasBlanks;
+    case 'fill_blank':
+      return hasBlanks;
+    case 'choice':
+      return hasChoice;
+    case 'mixed':
+      return hasBlanks && hasChoice;
+    default:
+      return hasBlanks;
   }
 }
 
 type CellStatus = 'current' | 'correct' | 'wrong' | 'answered' | 'unanswered';
 
-function ProgressCell({ status, num, onClick }: { status: CellStatus; num: number; onClick: () => void }) {
-  const base = 'w-8 h-8 rounded-lg text-xs flex items-center justify-center font-mono transition-all border-2 cursor-pointer';
+function ProgressCell({
+  status,
+  num,
+  onClick,
+}: {
+  status: CellStatus;
+  num: number;
+  onClick: () => void;
+}) {
+  const base =
+    'w-8 h-8 rounded-lg text-xs flex items-center justify-center font-mono transition-all border-2 cursor-pointer';
   const cls: Record<CellStatus, string> = {
-    current:    `${base} bg-accent text-white font-bold border-accent ring-2 ring-accent/30`,
-    correct:    `${base} bg-green-500/30 text-green-400 border-green-500`,
-    wrong:      `${base} bg-red-500/30 text-red-400 border-red-500`,
-    answered:   `${base} bg-blue-500/20 text-blue-400 border-blue-500`,
+    current: `${base} bg-accent text-white font-bold border-accent ring-2 ring-accent/30`,
+    correct: `${base} bg-green-500/30 text-green-400 border-green-500`,
+    wrong: `${base} bg-red-500/30 text-red-400 border-red-500`,
+    answered: `${base} bg-blue-500/20 text-blue-400 border-blue-500`,
     unanswered: `${base} bg-surface2 text-text-dim border-border`,
   };
-  return <div className={cls[status]} onClick={onClick}>{num}</div>;
+  return (
+    <button type="button" className={cls[status]} onClick={onClick}>
+      {num}
+    </button>
+  );
 }
 
 interface SidebarProps {
@@ -48,24 +67,40 @@ interface SidebarProps {
   onExit: () => void;
 }
 
-function Sidebar({ questions, currentIndex, results, answers, choiceAnswers, onSelect, onExit }: SidebarProps) {
+function Sidebar({
+  questions,
+  currentIndex,
+  results,
+  answers,
+  choiceAnswers,
+  onSelect,
+  onExit,
+}: SidebarProps) {
   return (
     <>
       <div className="p-4 border-b border-border">
         <p className="text-xs text-text-dim mb-1">复习进度</p>
-        <p className="text-sm font-medium">{currentIndex + 1} / {questions.length}</p>
+        <p className="text-sm font-medium">
+          {currentIndex + 1} / {questions.length}
+        </p>
       </div>
       <div className="flex-1 overflow-y-auto p-3">
         <div className="flex flex-wrap gap-1.5">
           {questions.map((q, i) => {
             const r = results[q.id];
             const status: CellStatus =
-              i === currentIndex ? 'current'
-              : r === 'correct' ? 'correct'
-              : r === 'wrong' ? 'wrong'
-              : (answers[q.id]?.some(a => a?.trim()) || choiceAnswers[q.id]) ? 'answered'
-              : 'unanswered';
-            return <ProgressCell key={q.id} status={status} num={i + 1} onClick={() => onSelect(i)} />;
+              i === currentIndex
+                ? 'current'
+                : r === 'correct'
+                  ? 'correct'
+                  : r === 'wrong'
+                    ? 'wrong'
+                    : answers[q.id]?.some(a => a?.trim()) || choiceAnswers[q.id]
+                      ? 'answered'
+                      : 'unanswered';
+            return (
+              <ProgressCell key={q.id} status={status} num={i + 1} onClick={() => onSelect(i)} />
+            );
           })}
         </div>
       </div>
@@ -81,7 +116,15 @@ function Sidebar({ questions, currentIndex, results, answers, choiceAnswers, onS
 export default function ReviewSessionPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { getSession, setAnswer, setChoiceAnswer, submitAnswer, toggleBookmark, setIssueReport, completeSession } = useReviewStore();
+  const {
+    getSession,
+    setAnswer,
+    setChoiceAnswer,
+    submitAnswer,
+    toggleBookmark,
+    setIssueReport,
+    completeSession,
+  } = useReviewStore();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -100,7 +143,7 @@ export default function ReviewSessionPage() {
   const blankCount = (q.question.match(/____/g) ?? []).length;
   const currentAnswers = answers[q.id] ?? [];
   const currentChoice = choiceAnswers[q.id];
-  // 直接从 store 的 results 判断（持久化，刷新页面不丢失）
+  // Read persisted results directly from the store so refreshes retain state.
   const hasSubmitted = q.id in results;
   const submitResult = results[q.id];
   const filled = isAnswered(qType, blankCount, currentAnswers, currentChoice);
@@ -121,14 +164,24 @@ export default function ReviewSessionPage() {
   };
 
   const sidebarProps: SidebarProps = {
-    questions, currentIndex, results, answers, choiceAnswers,
-    onSelect: (i: number) => { setCurrentIndex(i); setSidebarOpen(false); },
+    questions,
+    currentIndex,
+    results,
+    answers,
+    choiceAnswers,
+    onSelect: (i: number) => {
+      setCurrentIndex(i);
+      setSidebarOpen(false);
+    },
     onExit: () => navigate('/review'),
   };
 
   return (
-    <div className="h-[100dvh] pt-14 flex flex-col overflow-hidden" style={{ background: 'var(--bg)' }}>
-      {/* 进度条 */}
+    <div
+      className="h-[calc(100dvh_-_var(--tab-bar-h))] pt-14 flex flex-col overflow-hidden"
+      style={{ background: 'var(--bg)' }}
+    >
+      {/* Progress bar. */}
       <div className="flex-shrink-0 h-1 bg-surface2">
         <motion.div
           className="h-full bg-accent"
@@ -138,40 +191,52 @@ export default function ReviewSessionPage() {
       </div>
 
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* 桌面侧边栏 */}
+        {/* Desktop sidebar. */}
         <aside className="flex-shrink-0 w-56 border-r border-border bg-surface/50 hidden md:flex flex-col">
           <Sidebar {...sidebarProps} />
         </aside>
 
-        {/* 移动端侧边栏抽屉 */}
+        {/* Mobile sidebar drawer. */}
         <AnimatePresence>
           {sidebarOpen && (
             <motion.div
-              initial={{ x: -240 }} animate={{ x: 0 }} exit={{ x: -240 }}
+              initial={{ x: -240 }}
+              animate={{ x: 0 }}
+              exit={{ x: -240 }}
               transition={{ duration: 0.2 }}
-              className="md:hidden fixed top-14 left-0 bottom-0 w-60 z-30 bg-surface border-r border-border flex flex-col"
+              className="md:hidden fixed top-14 left-0 w-60 z-30 bg-surface border-r border-border flex flex-col"
+              style={{ bottom: 'var(--tab-bar-h)' }}
             >
               <div className="flex items-center justify-between p-4 border-b border-border">
                 <span className="text-sm font-medium">题目列表</span>
-                <button onClick={() => setSidebarOpen(false)}><X size={18} className="text-text-dim" /></button>
+                <button onClick={() => setSidebarOpen(false)}>
+                  <X size={18} className="text-text-dim" />
+                </button>
               </div>
               <Sidebar {...sidebarProps} />
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* 主区域 */}
+        {/* Main area. */}
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-6 max-w-2xl mx-auto w-full">
-          {/* 移动端顶栏 */}
+          {/* Mobile header. */}
           <div className="md:hidden flex items-center justify-between">
-            <button onClick={() => setSidebarOpen(true)} className="flex items-center gap-1.5 text-text-dim hover:text-text">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="flex items-center gap-1.5 text-text-dim hover:text-text"
+            >
               <Menu size={18} />
-              <span className="text-sm">{currentIndex + 1}/{questions.length}</span>
+              <span className="text-sm">
+                {currentIndex + 1}/{questions.length}
+              </span>
             </button>
-            <Button variant="ghost" size="sm" onClick={() => navigate('/review')}>结束复习</Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/review')}>
+              结束复习
+            </Button>
           </div>
 
-          {/* 题目卡片 */}
+          {/* Question card. */}
           <AnimatePresence mode="wait">
             <motion.div
               key={q.id}
@@ -197,23 +262,30 @@ export default function ReviewSessionPage() {
                   arr[i] = v;
                   setAnswer(sessionId, q.id, arr);
                 }}
-                onChoiceChange={(label) => {
+                onChoiceChange={label => {
                   if (!sessionId || hasSubmitted) return;
                   setChoiceAnswer(sessionId, q.id, label);
                 }}
                 onSkip={handleNext}
                 onBookmark={() => sessionId && toggleBookmark(sessionId, q.id)}
-                onIssueReport={(reason) => sessionId && setIssueReport(sessionId, q.id, reason)}
+                onIssueReport={reason => sessionId && setIssueReport(sessionId, q.id, reason)}
                 onNext={handleNext}
-                onPrev={() => { if (currentIndex > 0) setCurrentIndex(currentIndex - 1); }}
+                onPrev={() => {
+                  if (currentIndex > 0) setCurrentIndex(currentIndex - 1);
+                }}
               />
             </motion.div>
           </AnimatePresence>
 
-          {/* 提交按钮 / 即时反馈 */}
+          {/* Submit button and immediate feedback. */}
           <div className="flex flex-col gap-3">
             {!hasSubmitted ? (
-              <Button variant="primary" disabled={!filled} onClick={handleSubmit} className="w-full">
+              <Button
+                variant="primary"
+                disabled={!filled}
+                onClick={handleSubmit}
+                className="w-full"
+              >
                 提交答案
               </Button>
             ) : (
@@ -228,9 +300,15 @@ export default function ReviewSessionPage() {
               >
                 <div className="flex items-center gap-2 mb-3">
                   {submitResult === 'correct' ? (
-                    <><CheckCircle2 size={18} className="text-green-400" /><span className="font-medium text-green-400">回答正确</span></>
+                    <>
+                      <CheckCircle2 size={18} className="text-green-400" />
+                      <span className="font-medium text-green-400">回答正确</span>
+                    </>
                   ) : (
-                    <><XCircle size={18} className="text-red-400" /><span className="font-medium text-red-400">答错了</span></>
+                    <>
+                      <XCircle size={18} className="text-red-400" />
+                      <span className="font-medium text-red-400">答错了</span>
+                    </>
                   )}
                 </div>
                 {submitResult === 'wrong' && (
@@ -254,11 +332,19 @@ export default function ReviewSessionPage() {
             {hasSubmitted && (
               <div className="flex gap-3">
                 {currentIndex > 0 && (
-                  <Button variant="secondary" onClick={() => setCurrentIndex(currentIndex - 1)} className="flex items-center gap-1">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setCurrentIndex(currentIndex - 1)}
+                    className="flex items-center gap-1"
+                  >
                     <ChevronLeft size={15} /> 上一题
                   </Button>
                 )}
-                <Button variant="primary" onClick={handleNext} className="flex-1 flex items-center justify-center gap-1">
+                <Button
+                  variant="primary"
+                  onClick={handleNext}
+                  className="flex-1 flex items-center justify-center gap-1"
+                >
                   {currentIndex < questions.length - 1 ? '下一题' : '查看总结'}
                   <ChevronRight size={15} />
                 </Button>

@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import type { ReportData, KPStat } from '../types';
-import type { ExamSession } from '../types';
+import type { ExamSession, KPStat, ReportData } from '../types';
 import { judgeQuestion } from '../utils/judgeAnswer';
 
 interface ReportStore {
@@ -12,7 +11,7 @@ interface ReportStore {
 export const useReportStore = create<ReportStore>()((set, get) => ({
   reports: {},
 
-  buildReport: (session) => {
+  buildReport: session => {
     const kpStatsMap = new Map<string, KPStat>();
 
     session.questions.forEach(q => {
@@ -38,9 +37,8 @@ export const useReportStore = create<ReportStore>()((set, get) => ({
 
     const totalQuestions = session.questions.length;
     const correctCount = kpStats.reduce((sum, s) => sum + s.correct, 0);
-    const duration = session.submittedAt && session.startedAt
-      ? session.submittedAt - session.startedAt
-      : 0;
+    const duration =
+      session.submittedAt && session.startedAt ? session.submittedAt - session.startedAt : 0;
 
     const report: ReportData = {
       sessionId: session.sessionId,
@@ -54,5 +52,5 @@ export const useReportStore = create<ReportStore>()((set, get) => ({
     return report;
   },
 
-  getReport: (sessionId) => get().reports[sessionId] ?? null,
+  getReport: sessionId => get().reports[sessionId] ?? null,
 }));

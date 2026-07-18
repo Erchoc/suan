@@ -1,9 +1,9 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { cloudflare } from '@cloudflare/vite-plugin'
-import path from 'path'
-import { VitePWA } from 'vite-plugin-pwa'
-import { execSync } from 'child_process'
+import { execSync } from 'node:child_process';
+import path from 'node:path';
+import { cloudflare } from '@cloudflare/vite-plugin';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 const commitHash = (() => {
   try {
@@ -33,10 +33,15 @@ export default defineConfig({
         scope: '/',
         lang: 'zh-CN',
         icons: [
-          { src: 'pwa-64x64.png',          sizes: '64x64',   type: 'image/png' },
-          { src: 'pwa-192x192.png',         sizes: '192x192', type: 'image/png' },
-          { src: 'pwa-512x512.png',         sizes: '512x512', type: 'image/png' },
-          { src: 'maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          {
+            src: 'maskable-icon-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
         ],
       },
       workbox: {
@@ -70,4 +75,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-})
+});

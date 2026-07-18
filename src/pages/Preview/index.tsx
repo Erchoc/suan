@@ -1,11 +1,12 @@
 // src/pages/Preview/index.tsx
-import { useState, useMemo, useRef, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { GraduationCap, Search, X } from 'lucide-react';
+
 import { motion } from 'framer-motion';
-import { kpMap, graphData } from '../../data/kpIndex';
-import { usePreviewStore } from '../../stores/previewStore';
+import { GraduationCap, Search, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Button from '../../components/ui/Button';
+import { graphData, kpMap } from '../../data/kpIndex';
+import { usePreviewStore } from '../../stores/previewStore';
 
 const MAX_SELECT = 10;
 
@@ -19,7 +20,7 @@ export default function PreviewIndex() {
   const initialGrade = useMemo(() => {
     if (!initialKp) return 1;
     const m = initialKp.match(/^(\d+)-/);
-    return m ? Math.min(6, Math.max(1, parseInt(m[1]))) : 1;
+    return m ? Math.min(6, Math.max(1, parseInt(m[1], 10))) : 1;
   }, [initialKp]);
 
   const [activeGrade, setActiveGrade] = useState(initialGrade);
@@ -31,9 +32,12 @@ export default function PreviewIndex() {
   const targetRef = useRef<HTMLLabelElement | null>(null);
   useEffect(() => {
     if (initialKp && targetRef.current) {
-      setTimeout(() => targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+      setTimeout(
+        () => targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+        150,
+      );
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialKp]);
 
   const toggle = (kpId: string) => {
     setSelected(prev => {
@@ -55,14 +59,17 @@ export default function PreviewIndex() {
 
   const currentGrade = graphData.grades[activeGrade - 1];
 
-  // 搜索结果
+  // Search results.
   const searchResults = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return null;
     const results: {
-      gradeColor: string; gradeName: string;
-      domainName: string; unitName: string;
-      kpId: string; kpName: string;
+      gradeColor: string;
+      gradeName: string;
+      domainName: string;
+      unitName: string;
+      kpId: string;
+      kpName: string;
     }[] = [];
     graphData.grades.forEach(grade => {
       grade.domains.forEach(domain => {
@@ -96,7 +103,7 @@ export default function PreviewIndex() {
           <h1 className="font-brush text-3xl text-accent mb-1">预习模式</h1>
           <p className="text-text-dim/70 mb-6">选择即将学习的知识点，边学边练，无时间压力</p>
 
-          {/* 选择卡片 */}
+          {/* Selection card. */}
           <div className="bg-surface border border-border rounded-2xl p-5 mb-4">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-9 h-9 rounded-xl bg-accent/15 flex items-center justify-center flex-shrink-0">
@@ -108,9 +115,12 @@ export default function PreviewIndex() {
               </div>
             </div>
 
-            {/* 搜索框 */}
+            {/* Search field. */}
             <div className="relative mb-3">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim/60 pointer-events-none" />
+              <Search
+                size={13}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim/60 pointer-events-none"
+              />
               <input
                 type="text"
                 placeholder="搜索领域、单元或知识点..."
@@ -129,7 +139,7 @@ export default function PreviewIndex() {
             </div>
 
             {searchResults ? (
-              /* 搜索结果 */
+              /* Search results. */
               <div className="max-h-72 overflow-y-auto flex flex-col gap-0.5 pr-1">
                 {searchResults.length === 0 ? (
                   <p className="text-sm text-text-dim/60 text-center py-6">没有匹配的知识点</p>
@@ -170,11 +180,13 @@ export default function PreviewIndex() {
               </div>
             ) : (
               <>
-                {/* 年级横向 Tabs */}
+                {/* Horizontal grade tabs. */}
                 <div className="flex gap-1 overflow-x-auto pb-0.5 no-scrollbar mb-3">
                   {graphData.grades.map((grade, gi) => {
                     const gNum = gi + 1;
-                    const gradeKpIds = grade.domains.flatMap(d => d.units.flatMap(u => u.kps.map(k => k.id)));
+                    const gradeKpIds = grade.domains.flatMap(d =>
+                      d.units.flatMap(u => u.kps.map(k => k.id)),
+                    );
                     const selCount = gradeKpIds.filter(id => selected.has(id)).length;
                     const active = activeGrade === gNum;
                     return (
@@ -195,44 +207,46 @@ export default function PreviewIndex() {
                   })}
                 </div>
 
-                {/* 当前年级知识点（按单元分组） */}
+                {/* Current-grade knowledge points grouped by unit. */}
                 <div className="max-h-72 overflow-y-auto flex flex-col gap-0.5 pr-1">
-                  {currentGrade?.domains.flatMap(d => d.units).map((unit, ui) => (
-                    <div key={unit.id} className={ui > 0 ? 'mt-2' : ''}>
-                      <p className="text-xs text-text-dim/50 px-2 py-1 font-medium">
-                        {unit.name} · {unit.semester}学期
-                      </p>
-                      {unit.kps.map(kp => {
-                        const checked = selected.has(kp.id);
-                        const disabled = !checked && selected.size >= MAX_SELECT;
-                        return (
-                          <label
-                            key={kp.id}
-                            ref={kp.id === initialKp ? targetRef : undefined}
-                            className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer group transition-colors ${
-                              disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-surface2/60'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={disabled}
-                              onChange={() => !disabled && toggle(kp.id)}
-                              className="accent-accent flex-shrink-0 w-3.5 h-3.5"
-                            />
-                            <span className="text-sm flex-1 text-text-dim group-hover:text-text transition-colors">
-                              {kp.name}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ))}
+                  {currentGrade?.domains
+                    .flatMap(d => d.units)
+                    .map((unit, ui) => (
+                      <div key={unit.id} className={ui > 0 ? 'mt-2' : ''}>
+                        <p className="text-xs text-text-dim/50 px-2 py-1 font-medium">
+                          {unit.name} · {unit.semester}学期
+                        </p>
+                        {unit.kps.map(kp => {
+                          const checked = selected.has(kp.id);
+                          const disabled = !checked && selected.size >= MAX_SELECT;
+                          return (
+                            <label
+                              key={kp.id}
+                              ref={kp.id === initialKp ? targetRef : undefined}
+                              className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer group transition-colors ${
+                                disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-surface2/60'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={disabled}
+                                onChange={() => !disabled && toggle(kp.id)}
+                                className="accent-accent flex-shrink-0 w-3.5 h-3.5"
+                              />
+                              <span className="text-sm flex-1 text-text-dim group-hover:text-text transition-colors">
+                                {kp.name}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ))}
                 </div>
               </>
             )}
 
-            {/* 已选统计 */}
+            {/* Selection summary. */}
             {selected.size > 0 && (
               <div className="flex items-center justify-between text-xs text-text-dim/70 mt-3 pt-3 border-t border-border">
                 <span>
@@ -248,12 +262,13 @@ export default function PreviewIndex() {
             )}
           </div>
 
-          {/* 底部操作 */}
+          {/* Bottom actions. */}
           <div className="flex items-center justify-between">
             <p className="text-sm text-text-dim/70 leading-normal">
               {selected.size > 0 ? (
                 <>
-                  已选 <span className="text-accent font-medium">{selected.size}</span> 个（最多 {MAX_SELECT} 个）
+                  已选 <span className="text-accent font-medium">{selected.size}</span> 个（最多{' '}
+                  {MAX_SELECT} 个）
                 </>
               ) : (
                 '请至少选择 1 个知识点'

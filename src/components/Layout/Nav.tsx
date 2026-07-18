@@ -1,31 +1,38 @@
-import { Link, useLocation } from 'react-router-dom';
-import {
-  BarChart3, GitFork, FlaskConical, BookOpen, GraduationCap,
-  Sun, Moon, Sparkles, Gamepad2,
-} from 'lucide-react';
-import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import {
+  BarChart3,
+  BookOpen,
+  FlaskConical,
+  Gamepad2,
+  GitFork,
+  GraduationCap,
+  Moon,
+  Sparkles,
+  Sun,
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../../contexts/theme';
 
-// ─── 导航配置 ───────────────────────────────────────────────
+// ─── Navigation configuration ──────────────────────────────
 const BOTTOM_NAV = [
-  { path: '/',           label: '首页',   Icon: BarChart3 },
-  { path: '/assessment', label: '摸底',   Icon: FlaskConical },
-  { path: '/review',     label: '复习',   Icon: BookOpen },
-  { path: '/preview',    label: '预习',   Icon: GraduationCap },
-  { path: '/graph',      label: '图谱',   Icon: GitFork },
+  { path: '/', label: '首页', Icon: BarChart3 },
+  { path: '/assessment', label: '摸底', Icon: FlaskConical },
+  { path: '/review', label: '复习', Icon: BookOpen },
+  { path: '/preview', label: '预习', Icon: GraduationCap },
+  { path: '/graph', label: '图谱', Icon: GitFork },
 ];
 
 const TOP_NAV = [
-  { path: '/',           label: '首页',     Icon: BarChart3 },
-  { path: '/graph',      label: '知识图谱', Icon: GitFork },
+  { path: '/', label: '首页', Icon: BarChart3 },
+  { path: '/graph', label: '知识图谱', Icon: GitFork },
   { path: '/assessment', label: '摸底考试', Icon: FlaskConical },
-  { path: '/game',       label: '游戏模式', Icon: Gamepad2, comingSoon: true },
-  { path: '/review',     label: '复习',     Icon: BookOpen },
-  { path: '/preview',    label: '预习',     Icon: GraduationCap },
+  { path: '/game', label: '游戏模式', Icon: Gamepad2, comingSoon: true },
+  { path: '/review', label: '复习', Icon: BookOpen },
+  { path: '/preview', label: '预习', Icon: GraduationCap },
 ];
 
-// ─── 辅助 hooks ─────────────────────────────────────────────
+// ─── Helper hooks ───────────────────────────────────────────
 function useIsMobile() {
   const [v, setV] = useState(() => window.matchMedia('(max-width: 639px)').matches);
   useEffect(() => {
@@ -82,7 +89,7 @@ function ComingSoonModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── 桌面端顶部导航 ─────────────────────────────────────────
+// ─── Desktop top navigation ─────────────────────────────────
 function DesktopNav() {
   const { pathname } = useLocation();
   const { theme, toggle } = useTheme();
@@ -91,7 +98,8 @@ function DesktopNav() {
   return (
     <>
       {showComingSoon && <ComingSoonModal onClose={() => setShowComingSoon(false)} />}
-      <nav className="hidden sm:flex fixed top-0 left-0 right-0 z-50 items-center px-6"
+      <nav
+        className="hidden sm:flex fixed top-0 left-0 right-0 z-50 items-center px-6"
         style={{
           background: 'var(--surface)',
           borderBottom: '1px solid var(--border)',
@@ -111,25 +119,33 @@ function DesktopNav() {
             const active = pathname === path || (path !== '/' && pathname.startsWith(path));
             if (comingSoon) {
               return (
-                <button key={path} onClick={() => setShowComingSoon(true)}
+                <button
+                  key={path}
+                  onClick={() => setShowComingSoon(true)}
                   className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-text-dim hover:text-text hover:bg-surface2"
                 >
-                  <Icon size={15} />{label}
+                  <Icon size={15} />
+                  {label}
                 </button>
               );
             }
             return (
-              <Link key={path} to={path}
+              <Link
+                key={path}
+                to={path}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors
                   ${active ? 'bg-accent/15 text-accent font-medium' : 'text-text-dim hover:text-text hover:bg-surface2'}`}
               >
-                <Icon size={15} />{label}
+                <Icon size={15} />
+                {label}
               </Link>
             );
           })}
         </div>
 
-        <button onClick={toggle} aria-label="切换主题"
+        <button
+          onClick={toggle}
+          aria-label="切换主题"
           className="cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg text-text-dim hover:text-text hover:bg-surface2 transition-colors"
         >
           {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
@@ -139,12 +155,12 @@ function DesktopNav() {
   );
 }
 
-// ─── 移动端顶部安全区（仅遮住状态栏，毛玻璃） ───────────────
+// ─── Mobile safe-area header with a translucent background ──
 function MobileStatusBar({ isPWA }: { isPWA: boolean }) {
   const { theme, toggle } = useTheme();
 
   if (isPWA) {
-    // 独立 PWA 的安全区使用纯主题背景，避免系统栏与页面主题出现色差。
+    // Use a solid themed safe-area background in standalone mode to avoid system-bar mismatch.
     return (
       <div
         className="sm:hidden fixed top-0 left-0 right-0 z-50"
@@ -154,7 +170,7 @@ function MobileStatusBar({ isPWA }: { isPWA: boolean }) {
     );
   }
 
-  // 普通移动浏览器：显示 Logo + 主题切换的紧凑顶栏
+  // Regular mobile browsers use a compact header with the logo and theme toggle.
   return (
     <nav
       className="sm:hidden fixed top-0 left-0 right-0 z-50 flex items-end px-4 pb-2 backdrop-blur-md"
@@ -168,7 +184,9 @@ function MobileStatusBar({ isPWA }: { isPWA: boolean }) {
       <Link to="/" className="flex items-center gap-2 flex-1">
         <span className="font-brush text-xl text-accent">算道</span>
       </Link>
-      <button onClick={toggle} aria-label="切换主题"
+      <button
+        onClick={toggle}
+        aria-label="切换主题"
         className="w-8 h-8 flex items-center justify-center rounded-lg text-text-dim transition-colors"
       >
         {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
@@ -177,7 +195,7 @@ function MobileStatusBar({ isPWA }: { isPWA: boolean }) {
   );
 }
 
-// ─── 移动端底部 Tab Bar ────────────────────────────────────
+// ─── Mobile bottom tab bar ──────────────────────────────────
 function BottomTabBar() {
   const { pathname } = useLocation();
   const [showComingSoon, setShowComingSoon] = useState(false);
@@ -193,7 +211,7 @@ function BottomTabBar() {
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}
       >
-        {/* 50px 固定高度交互区 */}
+        {/* Fixed 50px interaction area */}
         <div className="flex" style={{ height: '50px' }}>
           {BOTTOM_NAV.map(({ path, label, Icon }) => {
             const active = pathname === path || (path !== '/' && pathname.startsWith(path));
@@ -221,7 +239,7 @@ function BottomTabBar() {
   );
 }
 
-// ─── 主导出 ────────────────────────────────────────────────
+// ─── Main export ────────────────────────────────────────────
 export default function Nav() {
   const isMobile = useIsMobile();
   const isPWA = useIsPWA();

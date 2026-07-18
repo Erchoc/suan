@@ -9,12 +9,26 @@ const allowRateLimiter: RateLimit = {
 
 function createEnv(overrides: Partial<CloudflareBindings> = {}): CloudflareBindings {
   return {
-    AI_API_KEY: 'test-api-key',
-    AI_BASE_URL: 'https://api.deepseek.com',
-    AI_MODEL: 'deepseek-chat',
+    API_KEY: 'test-api-key',
+    BASE_URL: 'https://api.deepseek.com',
+    MODEL: 'deepseek-chat',
+    AI_PROTOCOL: 'openai-chat',
     AI_RATE_LIMITER: allowRateLimiter,
     ...overrides,
   };
+}
+
+function sseResponse(chunks: string[]): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+    }),
+    { headers: { 'content-type': 'text/event-stream' } },
+  );
 }
 
 function chatBody(overrides: Record<string, unknown> = {}) {
@@ -50,7 +64,7 @@ afterEach(() => {
 });
 
 describe('Suan Hono Worker', () => {
-  it('提供可观测的健康检查', async () => {
+  it('provides an observable health check', async () => {
     const app = createApp({ randomUUID: () => CLIENT_ID });
     const response = await app.request('/api/health', {}, createEnv());
 
@@ -64,7 +78,7 @@ describe('Suan Hono Worker', () => {
     });
   });
 
-  it('未知 API 返回结构化 404，而不是 SPA HTML', async () => {
+  it('returns a structured 404 instead of SPA HTML for an unknown API route', async () => {
     const response = await createApp({ randomUUID: () => CLIENT_ID }).request(
       '/api/missing',
       {},
@@ -78,7 +92,7 @@ describe('Suan Hono Worker', () => {
     });
   });
 
-  it('拒绝跨站浏览器请求', async () => {
+  it('rejects cross-origin browser requests', async () => {
     const response = await createApp({ randomUUID: () => CLIENT_ID }).request(
       'https://suan.longye.site/api/ai/chat',
       chatRequest(chatBody(), { origin: 'https://evil.example' }),
@@ -91,7 +105,7 @@ describe('Suan Hono Worker', () => {
     });
   });
 
-  it('拒绝 system 消息和非法 JSON 类型', async () => {
+  it('rejects system messages and invalid JSON value types', async () => {
     const app = createApp({ randomUUID: () => CLIENT_ID });
     const response = await app.request(
       '/api/ai/chat',
@@ -105,7 +119,7 @@ describe('Suan Hono Worker', () => {
     });
   });
 
-  it('限制请求体大小', async () => {
+  it('enforces the request body size limit', async () => {
     const response = await createApp({ randomUUID: () => CLIENT_ID }).request(
       '/api/ai/chat',
       chatRequest(chatBody(), { 'content-length': '70000' }),
@@ -118,7 +132,7 @@ describe('Suan Hono Worker', () => {
     });
   });
 
-  it('限流时返回 429 与 Retry-After', async () => {
+  it('returns 429 with Retry-After when rate limited', async () => {
     const denyRateLimiter: RateLimit = {
       limit: async () => ({ success: false }),
     };
@@ -135,7 +149,7 @@ describe('Suan Hono Worker', () => {
     });
   });
 
-  it('在 Cloudflare 边缘优先按连接 IP 限流', async () => {
+  it('prefers the connection IP for rate limiting at the Cloudflare edge', async () => {
     let receivedKey = '';
     const rateLimiter: RateLimit = {
       limit: async ({ key }) => {
@@ -146,18 +160,18 @@ describe('Suan Hono Worker', () => {
     const response = await createApp({ randomUUID: () => CLIENT_ID }).request(
       '/api/ai/chat',
       chatRequest(chatBody(), { 'cf-connecting-ip': '203.0.113.9' }),
-      createEnv({ AI_API_KEY: '', AI_RATE_LIMITER: rateLimiter }),
+      createEnv({ API_KEY: '', AI_RATE_LIMITER: rateLimiter }),
     );
 
     expect(response.status).toBe(503);
     expect(receivedKey).toBe('ai:ip:203.0.113.9');
   });
 
-  it('未配置密钥时返回 503', async () => {
+  it('returns 503 when the API key is not configured', async () => {
     const response = await createApp({ randomUUID: () => CLIENT_ID }).request(
       '/api/ai/chat',
       chatRequest(),
-      createEnv({ AI_API_KEY: '' }),
+      createEnv({ API_KEY: '' }),
     );
 
     expect(response.status).toBe(503);
@@ -166,7 +180,7 @@ describe('Suan Hono Worker', () => {
     });
   });
 
-  it('服务端构造 system prompt 并原样流式返回上游 SSE', async () => {
+  it('defaults to OpenAI Chat and streams upstream SSE unchanged', async () => {
     let upstreamUrl = '';
     let upstreamInit: RequestInit | undefined;
     const upstreamFetch: typeof fetch = async (input, init) => {
@@ -177,13 +191,15 @@ describe('Suan Hono Worker', () => {
       });
     };
     const app = createApp({ fetch: upstreamFetch, randomUUID: () => CLIENT_ID });
+    const env = createEnv({ BASE_URL: 'https://api.deepseek.com/v1/chat/completions/' });
+    Reflect.deleteProperty(env, 'AI_PROTOCOL');
 
-    const response = await app.request('/api/ai/chat', chatRequest(), createEnv());
+    const response = await app.request('/api/ai/chat', chatRequest(), env);
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/event-stream');
     expect(await response.text()).toContain('"content":"2"');
-    expect(upstreamUrl).toBe('https://api.deepseek.com/chat/completions');
+    expect(upstreamUrl).toBe('https://api.deepseek.com/v1/chat/completions');
     expect(new Headers(upstreamInit?.headers).get('authorization')).toBe('Bearer test-api-key');
     const payload = JSON.parse(String(upstreamInit?.body)) as {
       model: string;
@@ -197,7 +213,172 @@ describe('Suan Hono Worker', () => {
     expect(payload.messages[1]).toEqual({ role: 'user', content: '1 加 1 等于几？' });
   });
 
-  it('默认上游 fetch 使用 Worker 全局对象作为 receiver', async () => {
+  it('adapts OpenAI Responses requests and normalizes split text events', async () => {
+    let upstreamUrl = '';
+    let upstreamInit: RequestInit | undefined;
+    const upstreamFetch: typeof fetch = async (input, init) => {
+      upstreamUrl = String(input);
+      upstreamInit = init;
+      return sseResponse([
+        'event: response.created\r\ndata: {"type":"response.created"}\r\n\r\nevent: response.output_text.delta\r\ndata: {"type":"response.output_',
+        'text.delta","delta":"答"}\r\n\r\nevent: response.output_text.delta\r\ndata: {"type":"response.output_text.delta","delta":"案"}\r\n\r\n',
+        'event: response.completed\r\ndata: {"type":"response.completed"}\r\n\r\n',
+      ]);
+    };
+    const env = createEnv();
+    Reflect.set(env, 'AI_PROTOCOL', 'openai-coding');
+    Reflect.set(env, 'BASE_URL', 'https://api.openai.com/v1/v1/chat/completions/');
+    Reflect.set(env, 'MODEL', 'gpt-test');
+
+    const response = await createApp({
+      fetch: upstreamFetch,
+      randomUUID: () => CLIENT_ID,
+    }).request('/api/ai/chat', chatRequest(), env);
+
+    expect(response.status).toBe(200);
+    expect(upstreamUrl).toBe('https://api.openai.com/v1/responses');
+    const headers = new Headers(upstreamInit?.headers);
+    expect(headers.get('authorization')).toBe('Bearer test-api-key');
+    expect(headers.get('x-api-key')).toBeNull();
+    const payload = JSON.parse(String(upstreamInit?.body)) as {
+      model: string;
+      instructions: string;
+      input: Array<{ role: string; content: string }>;
+      stream: boolean;
+      store: boolean;
+    };
+    expect(payload).toMatchObject({ model: 'gpt-test', stream: true, store: false });
+    expect(payload.instructions).toContain('1年级');
+    expect(payload.input).toEqual([{ role: 'user', content: '1 加 1 等于几？' }]);
+    expect(await response.text()).toBe(
+      'data: {"choices":[{"delta":{"content":"答"}}]}\n\n' +
+        'data: {"choices":[{"delta":{"content":"案"}}]}\n\n' +
+        'data: [DONE]\n\n',
+    );
+  });
+
+  it('adapts Anthropic requests and normalizes only text deltas', async () => {
+    let upstreamUrl = '';
+    let upstreamInit: RequestInit | undefined;
+    const upstreamFetch: typeof fetch = async (input, init) => {
+      upstreamUrl = String(input);
+      upstreamInit = init;
+      return sseResponse([
+        'event: ping\ndata: {"type":"ping"}\n\n',
+        'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hidden"}}\n\n',
+        'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"四"}}\n\n',
+        'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+      ]);
+    };
+    const env = createEnv();
+    Reflect.set(env, 'AI_PROTOCOL', 'anthropic');
+    Reflect.set(env, 'BASE_URL', 'https://api.anthropic.com');
+    Reflect.set(env, 'MODEL', 'claude-test');
+
+    const response = await createApp({
+      fetch: upstreamFetch,
+      randomUUID: () => CLIENT_ID,
+    }).request('/api/ai/chat', chatRequest(), env);
+
+    expect(response.status).toBe(200);
+    expect(upstreamUrl).toBe('https://api.anthropic.com/v1/messages');
+    const headers = new Headers(upstreamInit?.headers);
+    expect(headers.get('authorization')).toBeNull();
+    expect(headers.get('x-api-key')).toBe('test-api-key');
+    expect(headers.get('anthropic-version')).toBe('2023-06-01');
+    const payload = JSON.parse(String(upstreamInit?.body)) as {
+      model: string;
+      max_tokens: number;
+      system: string;
+      messages: Array<{ role: string; content: string }>;
+      stream: boolean;
+    };
+    expect(payload).toMatchObject({ model: 'claude-test', max_tokens: 512, stream: true });
+    expect(payload.system).toContain('1年级');
+    expect(payload.messages).toEqual([{ role: 'user', content: '1 加 1 等于几？' }]);
+    expect(await response.text()).toBe(
+      'data: {"choices":[{"delta":{"content":"四"}}]}\n\ndata: [DONE]\n\n',
+    );
+  });
+
+  it('appends the Anthropic v1 endpoint to a provider-specific base path', async () => {
+    let upstreamUrl = '';
+    const env = createEnv();
+    Reflect.set(env, 'AI_PROTOCOL', 'anthropic');
+    Reflect.set(env, 'BASE_URL', 'https://api.deepseek.com/anthropic');
+
+    const response = await createApp({
+      fetch: async input => {
+        upstreamUrl = String(input);
+        return sseResponse(['event: message_stop\ndata: {"type":"message_stop"}\n\n']);
+      },
+      randomUUID: () => CLIENT_ID,
+    }).request('/api/ai/chat', chatRequest(), env);
+
+    expect(response.status).toBe(200);
+    expect(upstreamUrl).toBe('https://api.deepseek.com/anthropic/v1/messages');
+    expect(await response.text()).toBe('data: [DONE]\n\n');
+  });
+
+  it('returns 503 for an unsupported AI protocol before calling upstream', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>();
+    const env = createEnv();
+    Reflect.set(env, 'AI_PROTOCOL', 'unsupported');
+
+    const response = await createApp({
+      fetch: upstreamFetch,
+      randomUUID: () => CLIENT_ID,
+    }).request('/api/ai/chat', chatRequest(), env);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'AI_NOT_CONFIGURED', message: 'AI 协议配置无效' },
+    });
+    expect(upstreamFetch).not.toHaveBeenCalled();
+  });
+
+  it('surfaces malformed provider events as a stream failure', async () => {
+    const env = createEnv();
+    Reflect.set(env, 'AI_PROTOCOL', 'openai-coding');
+    const response = await createApp({
+      fetch: async () => sseResponse(['event: response.output_text.delta\ndata: {not-json}\n\n']),
+      randomUUID: () => CLIENT_ID,
+    }).request('/api/ai/chat', chatRequest(), env);
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).rejects.toThrow('Invalid upstream event stream');
+  });
+
+  it('rejects a provider stream that ends before its completion event', async () => {
+    const env = createEnv();
+    Reflect.set(env, 'AI_PROTOCOL', 'openai-coding');
+    const response = await createApp({
+      fetch: async () =>
+        sseResponse([
+          'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"partial"}\n\n',
+        ]),
+      randomUUID: () => CLIENT_ID,
+    }).request('/api/ai/chat', chatRequest(), env);
+
+    expect(response.status).toBe(200);
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    const decoder = new TextDecoder();
+    let received = '';
+    await expect(
+      (async () => {
+        if (!reader) return;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) return;
+          received += decoder.decode(value, { stream: true });
+        }
+      })(),
+    ).rejects.toThrow('Invalid upstream event stream');
+    expect(received).not.toContain('[DONE]');
+  });
+
+  it('uses the Worker global object as the receiver for the default upstream fetch', async () => {
     const receiverAwareFetch = vi.fn(function (this: unknown) {
       if (this !== globalThis) throw new TypeError('Illegal invocation');
       return Promise.resolve(
@@ -216,7 +397,7 @@ describe('Suan Hono Worker', () => {
     expect(receiverAwareFetch).toHaveBeenCalledOnce();
   });
 
-  it('隐藏上游错误正文并返回 502', async () => {
+  it('hides the upstream error body and returns 502', async () => {
     const upstreamFetch: typeof fetch = async () =>
       new Response('sensitive upstream detail', { status: 401 });
     const response = await createApp({

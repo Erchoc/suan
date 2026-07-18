@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FlaskConical, Upload, ChevronRight } from 'lucide-react';
+import { ChevronRight, FlaskConical, Upload } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const modes = [
   {
@@ -25,13 +25,14 @@ const modes = [
 
 export default function Assessment() {
   return (
-    /* 移动端：单屏铺满（100dvh），内容垂直居中偏上，不依赖滚动
-       桌面端：保持 min-h-screen + justify-center 居中 */
-    <div className="flex flex-col items-center justify-center px-6
+    /* Mobile fills one 100dvh screen with content slightly above center and no scrolling.
+       Desktop keeps min-h-screen with justify-center alignment. */
+    <div
+      className="flex flex-col items-center justify-center px-6
                     min-h-screen sm:min-h-screen
                     pt-16 sm:pt-14
                     pb-4 sm:pb-0"
-         style={{ minHeight: 'calc(100dvh - 50px - env(safe-area-inset-bottom))' }}
+      style={{ minHeight: 'calc(100dvh - 50px - env(safe-area-inset-bottom))' }}
     >
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -57,13 +58,19 @@ export default function Assessment() {
                   推荐
                 </span>
               )}
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: `${tagColor}22` }}>
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center"
+                style={{ background: `${tagColor}22` }}
+              >
                 <Icon size={24} style={{ color: tagColor }} />
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="font-semibold text-lg">{title}</h3>
-                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: `${tagColor}22`, color: tagColor }}>
+                  <span
+                    className="text-xs px-1.5 py-0.5 rounded"
+                    style={{ background: `${tagColor}22`, color: tagColor }}
+                  >
                     {tag}
                   </span>
                 </div>

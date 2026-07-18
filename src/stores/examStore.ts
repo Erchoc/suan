@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { StorageValue } from 'zustand/middleware';
-import type { ExamConfig, ExamSession, Question, DifficultyLevel } from '../types';
+import { persist } from 'zustand/middleware';
+import type { DifficultyLevel, ExamConfig, ExamSession, Question } from '../types';
 
-// ─── 全局异常题目标记（localStorage，选题时排除）─────────────────────────────
+// ─── Globally flagged questions, persisted in localStorage and excluded from selection ───
 const FLAGGED_KEY = 'suandao-flagged-questions';
 
 export function getFlaggedQuestions(): Set<string> {
@@ -74,27 +74,26 @@ export const useExamStore = create<ExamStore>()(
       sessions: {},
       activeSessionId: null,
 
-      setGrade: (gradeNum) =>
+      setGrade: gradeNum =>
         set(state => ({
           config: {
             ...state.config,
             gradeNum,
             semester: null,
             selectedUnitIds: new Set(),
-            // 切换年级时：4-6年级不需要过滤（强制关闭）；1-3年级保持用户当前设置不变
+            // Disable text-input filtering for grades 4-6; preserve the current setting for grades 1-3.
             filterChineseInput: gradeNum > 3 ? false : state.config.filterChineseInput,
           },
         })),
 
-      setSemester: (semester) =>
+      setSemester: semester =>
         set(state => ({
           config: { ...state.config, semester, selectedUnitIds: new Set() },
         })),
 
-      setScope: (scope) =>
-        set(state => ({ config: { ...state.config, scope } })),
+      setScope: scope => set(state => ({ config: { ...state.config, scope } })),
 
-      toggleUnit: (unitId) =>
+      toggleUnit: unitId =>
         set(state => {
           const ids = new Set(state.config.selectedUnitIds);
           if (ids.has(unitId)) ids.delete(unitId);
@@ -102,30 +101,35 @@ export const useExamStore = create<ExamStore>()(
           return { config: { ...state.config, selectedUnitIds: ids } };
         }),
 
-      selectOnlyCurrent: (currentUnitIds) =>
+      selectOnlyCurrent: currentUnitIds =>
         set(state => ({
           config: { ...state.config, selectedUnitIds: new Set(currentUnitIds) },
         })),
 
-      selectAll: () =>
-        set(state => ({ config: { ...state.config, selectedUnitIds: new Set() } })),
+      selectAll: () => set(state => ({ config: { ...state.config, selectedUnitIds: new Set() } })),
 
       clearAll: () =>
         set(state => ({ config: { ...state.config, selectedUnitIds: new Set(['__none__']) } })),
 
-      setDifficulty: (difficulty) =>
-        set(state => ({ config: { ...state.config, difficulty } })),
+      setDifficulty: difficulty => set(state => ({ config: { ...state.config, difficulty } })),
 
-      setQuestionCount: (questionCount) =>
-        set(state => ({ config: { ...state.config, questionCount: Math.max(10, Math.min(200, questionCount)) } })),
+      setQuestionCount: questionCount =>
+        set(state => ({
+          config: { ...state.config, questionCount: Math.max(10, Math.min(200, questionCount)) },
+        })),
 
-      setTimeLimit: (timeLimitMinutes) =>
-        set(state => ({ config: { ...state.config, timeLimitMinutes: Math.max(0, Math.min(180, timeLimitMinutes)) } })),
+      setTimeLimit: timeLimitMinutes =>
+        set(state => ({
+          config: {
+            ...state.config,
+            timeLimitMinutes: Math.max(0, Math.min(180, timeLimitMinutes)),
+          },
+        })),
 
-      setFilterChineseInput: (value) =>
+      setFilterChineseInput: value =>
         set(state => ({ config: { ...state.config, filterChineseInput: value } })),
 
-      createSession: (questions) => {
+      createSession: questions => {
         const sessionId = crypto.randomUUID();
         const { config } = get();
         const session: ExamSession = {
@@ -146,7 +150,7 @@ export const useExamStore = create<ExamStore>()(
         return sessionId;
       },
 
-      startSession: (sessionId) =>
+      startSession: sessionId =>
         set(state => {
           const session = state.sessions[sessionId];
           if (!session || session.startedAt) return state;
@@ -195,7 +199,7 @@ export const useExamStore = create<ExamStore>()(
           const issueReports = { ...session.issueReports };
           if (reason.trim()) {
             issueReports[questionId] = reason;
-            // 同步写入全局异常题目标记（本地选题时排除）
+            // Mirror the issue in the global flags so local question selection excludes it.
             addFlaggedQuestion(questionId);
           } else {
             delete issueReports[questionId];
@@ -224,7 +228,7 @@ export const useExamStore = create<ExamStore>()(
           };
         }),
 
-      submitSession: (sessionId) =>
+      submitSession: sessionId =>
         set(state => {
           const session = state.sessions[sessionId];
           if (!session) return state;
@@ -248,20 +252,20 @@ export const useExamStore = create<ExamStore>()(
           };
         }),
 
-      getSession: (sessionId) => get().sessions[sessionId] ?? null,
+      getSession: sessionId => get().sessions[sessionId] ?? null,
 
       resetConfig: () => set({ config: defaultConfig }),
     }),
     {
       name: 'suandao-exam',
-      partialize: (state) => ({ sessions: state.sessions }),
-      // Set 序列化处理
+      partialize: state => ({ sessions: state.sessions }),
+      // Custom Set serialization.
       storage: {
-        getItem: (name) => {
+        getItem: name => {
           const str = localStorage.getItem(name);
           if (!str) return null;
           const data = JSON.parse(str) as StorageValue<Pick<ExamStore, 'sessions'>>;
-          // 反序列化 sessions 中的 Set
+          // Restore Set instances in persisted sessions.
           if (data.state?.sessions) {
             Object.values(data.state.sessions).forEach(s => {
               s.bookmarks = new Set(s.bookmarks ?? []);
@@ -273,15 +277,17 @@ export const useExamStore = create<ExamStore>()(
           return data;
         },
         setItem: (name, value) => {
-          // 序列化 sessions 中的 Set
-          const serialized = JSON.parse(JSON.stringify(value, (_key, val) => {
-            if (val instanceof Set) return [...val];
-            return val;
-          }));
+          // Serialize Set instances in sessions.
+          const serialized = JSON.parse(
+            JSON.stringify(value, (_key, val) => {
+              if (val instanceof Set) return [...val];
+              return val;
+            }),
+          );
           localStorage.setItem(name, JSON.stringify(serialized));
         },
-        removeItem: (name) => localStorage.removeItem(name),
+        removeItem: name => localStorage.removeItem(name),
       },
-    }
-  )
+    },
+  ),
 );

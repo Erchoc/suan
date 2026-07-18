@@ -1,29 +1,36 @@
 // src/pages/Preview/KnowledgeCardView.tsx
-import ReactMarkdown from 'react-markdown';
+
 import { BookOpen, ChevronRight, SkipForward } from 'lucide-react';
-import type { KnowledgeCard } from '../../types';
+import ReactMarkdown from 'react-markdown';
 import type { KPWithContext } from '../../data/kpIndex';
+import type { KnowledgeCard } from '../../types';
 
 interface KnowledgeCardViewProps {
   kp: KPWithContext;
-  card: KnowledgeCard | null;  // null → fallback
+  card: KnowledgeCard | null; // null → fallback
   isJunior: boolean;
   fontSize: string;
-  onStart: () => void;   // 「我学会了，开始练习」
-  onSkip: () => void;    // 「跳过，直接练习」
+  onStart: () => void; // Start the practice phase.
+  onSkip: () => void; // Skip directly to practice.
 }
 
 export default function KnowledgeCardView({
-  kp, card, isJunior, fontSize, onStart, onSkip,
+  kp,
+  card,
+  isJunior,
+  fontSize,
+  onStart,
+  onSkip,
 }: KnowledgeCardViewProps) {
-  // fallback：没有知识卡时
+  // Fallback when no knowledge card is available.
   if (!card) {
     return (
       <div className="bg-surface rounded-2xl border border-border p-6 text-center space-y-4">
         <p className="text-4xl">📖</p>
         <p className="text-text font-medium">{kp.name}</p>
         <p className="text-text-dim text-sm">
-          这个知识点的讲解内容还在准备中。<br />
+          这个知识点的讲解内容还在准备中。
+          <br />
           你可以先看课本，再来做练习。
         </p>
         <button
@@ -38,15 +45,19 @@ export default function KnowledgeCardView({
 
   return (
     <div className={`space-y-4 ${fontSize}`}>
-      {/* 知识卡主体 */}
+      {/* Knowledge card body. */}
       <div
         className={`rounded-2xl border border-border p-5 ${isJunior ? 'text-lg' : 'text-base'}`}
-        style={isJunior ? {
-          background: 'linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%)',
-          boxShadow: `inset 4px 0 0 ${kp.gradeColor}`,
-        } : { background: 'var(--surface)' }}
+        style={
+          isJunior
+            ? {
+                background: 'linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%)',
+                boxShadow: `inset 4px 0 0 ${kp.gradeColor}`,
+              }
+            : { background: 'var(--surface)' }
+        }
       >
-        {/* 标题区 */}
+        {/* Header area. */}
         <div className="flex items-start justify-between mb-4">
           <div>
             <p className="text-xs text-text-dim mb-1">
@@ -62,13 +73,13 @@ export default function KnowledgeCardView({
           )}
         </div>
 
-        {/* 讲解内容（Markdown） */}
+        {/* Markdown explanation. */}
         <div className="prose prose-sm prose-invert max-w-none">
           <ReactMarkdown>{card.explanation}</ReactMarkdown>
         </div>
       </div>
 
-      {/* 操作按钮 */}
+      {/* Action buttons. */}
       <div className="flex gap-3">
         <button
           onClick={onSkip}

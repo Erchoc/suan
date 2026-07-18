@@ -16,7 +16,8 @@ export interface AIChatOptions {
 }
 
 const CLIENT_ID_STORAGE_KEY = 'suan-ai-client-id';
-const CLIENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CLIENT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function getClientId(): string {
   try {
@@ -88,13 +89,14 @@ async function readErrorMessage(response: Response): Promise<string> {
       }
     }
   } catch {
-    // 非 JSON 错误响应使用统一文案。
+    // Use a consistent message for non-JSON error responses.
   }
   return `AI 服务请求失败：${response.status}`;
 }
 
 export async function streamChat(options: AIChatOptions): Promise<void> {
-  const { kpId, kpName, gradeNum, explanation, messages, onChunk, onDone, onError, signal } = options;
+  const { kpId, kpName, gradeNum, explanation, messages, onChunk, onDone, onError, signal } =
+    options;
 
   try {
     const response = await fetch('/api/ai/chat', {

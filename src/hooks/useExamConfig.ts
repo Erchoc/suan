@@ -1,5 +1,5 @@
-import { useExamStore } from '../stores/examStore';
 import { getKPsUpTo, graphData } from '../data/kpIndex';
+import { useExamStore } from '../stores/examStore';
 import { useQuestions } from './useQuestions';
 
 export function useExamConfig() {
@@ -7,13 +7,13 @@ export function useExamConfig() {
   const { config } = store;
   const { questions } = useQuestions();
 
-  const availableKPs = config.gradeNum && config.semester
-    ? getKPsUpTo(config.gradeNum, config.semester)
-    : [];
+  const availableKPs =
+    config.gradeNum && config.semester ? getKPsUpTo(config.gradeNum, config.semester) : [];
 
-  const availableQuestions = availableKPs.length > 0
-    ? questions.filter(q => availableKPs.some(kp => kp.id === q.kp_id))
-    : [];
+  const availableQuestions =
+    availableKPs.length > 0
+      ? questions.filter(q => availableKPs.some(kp => kp.id === q.kp_id))
+      : [];
 
   const currentGrade = config.gradeNum ? graphData.grades[config.gradeNum - 1] : null;
 

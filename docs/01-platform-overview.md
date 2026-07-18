@@ -27,7 +27,7 @@
     └── Hono Cloudflare Worker
         ├── GET /api/health
         └── POST /api/ai/chat
-            └── DeepSeek OpenAI 兼容流式接口
+            └── 可配置 AI 上游（Chat Completions / Responses / Anthropic Messages）
 ```
 
 | 层级       | 当前技术                                       |
@@ -39,7 +39,7 @@
 | 图谱与图表 | `@xyflow/react`、Dagre、Recharts               |
 | 接口       | Hono 4、Cloudflare Workers                     |
 | 静态资源   | Cloudflare Workers Static Assets、单页应用回退 |
-| 测试与检查 | Vitest、Workers 测试池、ESLint、TypeScript     |
+| 测试与检查 | Vitest、Workers 测试池、Biome、TypeScript      |
 
 生产流量由 `suan.longye.site/*` Worker Route 接管。静态文件优先走 Cloudflare 资产层，`/api` 与 `/api/*` 优先进入 Hono Worker。
 
@@ -88,9 +88,9 @@
 ## 六、当前接口
 
 - `GET /api/health`：报告 Worker 与 AI 配置状态。
-- `POST /api/ai/chat`：校验同源、输入大小与消息结构，由 Worker 构造系统提示词，调用 DeepSeek 并原样流式返回 SSE。
+- `POST /api/ai/chat`：校验同源、输入大小与消息结构，由 Worker 构造系统提示词；OpenAI Chat 流原样转发，Responses 与 Anthropic 流会归一化为前端统一的 SSE 契约。
 
-生产 `AI_API_KEY` 仅存于 Cloudflare Worker Secret。AI 路由通过 Cloudflare Rate Limiting binding 限制调用频率，并对客户端隐藏上游错误正文。
+生产 `API_KEY` 仅存于 Cloudflare Worker Secret。Worker 通过 `BASE_URL`、`MODEL` 与 `AI_PROTOCOL` 选择上游；协议支持 `openai-chat`、`openai-coding` 和 `anthropic`。AI 路由通过 Cloudflare Rate Limiting binding 限制调用频率，并对客户端隐藏上游错误正文。
 
 题库管理、账号、云端 Session、OCR 与周报接口尚未实现；相关文档仅是未来规划。
 

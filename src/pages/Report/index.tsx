@@ -1,19 +1,29 @@
-import { useState, useCallback } from 'react';
-import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Route, List, ChevronDown, ChevronUp, AlertTriangle, RotateCcw, ExternalLink, BookOpen, Eye } from 'lucide-react';
-import { useExamStore } from '../../stores/examStore';
-import { stripLatex } from '../../utils/latex';
-import { useReportStore } from '../../stores/reportStore';
-import { getFullDepsChain, kpMap } from '../../data/kpIndex';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  AlertTriangle,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Eye,
+  List,
+  RotateCcw,
+  Route,
+} from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
-import type { ExamSession, KPStat, QuestionType, Question } from '../../types';
+import { getFullDepsChain, kpMap } from '../../data/kpIndex';
+import { useExamStore } from '../../stores/examStore';
+import { useReportStore } from '../../stores/reportStore';
+import type { ExamSession, KPStat, Question, QuestionType } from '../../types';
+import { stripLatex } from '../../utils/latex';
 
 const TABS = [
-  { id: 'detail',   label: '答题详情',       Icon: List },
-  { id: 'weak',     label: '薄弱知识点',    Icon: AlertTriangle },
-  { id: 'path',     label: '学习路径建议',   Icon: Route },
+  { id: 'detail', label: '答题详情', Icon: List },
+  { id: 'weak', label: '薄弱知识点', Icon: AlertTriangle },
+  { id: 'path', label: '学习路径建议', Icon: Route },
 ];
 
 function formatDuration(ms: number) {
@@ -26,7 +36,7 @@ function formatDuration(ms: number) {
 
 const renderSolution = stripLatex;
 
-/** 百分制分数计算：每题等分，多空题按空数比例给部分分 */
+/** Calculates a percentage score with equal question weights and partial credit per blank. */
 function calcScore(session: ExamSession): number {
   const questions: Question[] = session.questions ?? [];
   if (questions.length === 0) return 0;
@@ -57,15 +67,31 @@ function ScoreCircle({ score }: { score: number }) {
   const radius = 52;
   const circ = 2 * Math.PI * radius;
   const offset = circ * (1 - Math.min(score / 100, 1));
-  const color = score >= 90 ? '#10b981' : score >= 75 ? '#f59e0b' : score >= 60 ? '#f97316' : '#ef4444';
+  const color =
+    score >= 90 ? '#10b981' : score >= 75 ? '#f59e0b' : score >= 60 ? '#f97316' : '#ef4444';
   const label = score >= 90 ? '优秀' : score >= 75 ? '良好' : score >= 60 ? '及格' : '继续加油';
   return (
     <div className="flex flex-col items-center gap-1">
       <div className="relative w-32 h-32">
-        <svg width="128" height="128" viewBox="0 0 128 128">
-          <circle cx="64" cy="64" r={radius} fill="none" stroke="var(--surface2)" strokeWidth="10" />
+        <svg
+          width="128"
+          height="128"
+          viewBox="0 0 128 128"
+          role="img"
+          aria-label={`得分 ${score} 分`}
+        >
           <circle
-            cx="64" cy="64" r={radius}
+            cx="64"
+            cy="64"
+            r={radius}
+            fill="none"
+            stroke="var(--surface2)"
+            strokeWidth="10"
+          />
+          <circle
+            cx="64"
+            cy="64"
+            r={radius}
             fill="none"
             stroke={color}
             strokeWidth="10"
@@ -77,25 +103,37 @@ function ScoreCircle({ score }: { score: number }) {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-bold leading-none" style={{ color }}>{score}</span>
+          <span className="text-3xl font-bold leading-none" style={{ color }}>
+            {score}
+          </span>
           <span className="text-xs text-text-dim mt-0.5">分</span>
         </div>
       </div>
-      <span className="text-sm font-semibold" style={{ color }}>{label}</span>
+      <span className="text-sm font-semibold" style={{ color }}>
+        {label}
+      </span>
     </div>
   );
 }
 
-function WeakKPRow({ stat, examGradeNum, examSemester }: { stat: KPStat; examGradeNum: number; examSemester: '上' | '下' }) {
+function WeakKPRow({
+  stat,
+  examGradeNum,
+  examSemester,
+}: {
+  stat: KPStat;
+  examGradeNum: number;
+  examSemester: '上' | '下';
+}) {
   const [expanded, setExpanded] = useState(false);
-  // 只追溯考试年级/学期往前 1 年的内容
+  // Trace content up to one year before the exam grade and semester.
   const minGrade = examSemester === '下' ? examGradeNum - 1 : examGradeNum - 1;
   const allDeps = getFullDepsChain(stat.kpId);
   const deps = allDeps.filter(d => d.gradeNum >= minGrade);
   const errorCount = stat.total - stat.correct;
   const isAllWrong = stat.correct === 0;
 
-  // 直观描述：全错 vs 部分错
+  // Distinguish fully incorrect from partially correct answers.
   const reasonText = isAllWrong
     ? `出了 ${stat.total} 道题，全错`
     : `出了 ${stat.total} 道题，答错 ${errorCount} 道`;
@@ -108,14 +146,15 @@ function WeakKPRow({ stat, examGradeNum, examSemester }: { stat: KPStat; examGra
             <span className="font-medium">{stat.kpName}</span>
             <Badge color="#a7a9be">{stat.grade}</Badge>
           </div>
-          {/* 直观描述 */}
+          {/* Plain-language summary. */}
           <p
             className="text-sm font-medium mb-1.5"
             style={{ color: isAllWrong ? '#e63946' : '#f4a261' }}
           >
-            {isAllWrong ? '⚠️ ' : '📌 '}{reasonText}
+            {isAllWrong ? '⚠️ ' : '📌 '}
+            {reasonText}
           </p>
-          {/* 进度条 */}
+          {/* Progress bar. */}
           <div className="flex items-center gap-2">
             <div className="flex gap-0.5">
               {Array.from({ length: stat.total }).map((_, i) => (
@@ -123,12 +162,9 @@ function WeakKPRow({ stat, examGradeNum, examSemester }: { stat: KPStat; examGra
                   key={i}
                   className="w-4 h-4 rounded-sm text-xs flex items-center justify-center font-bold"
                   style={{
-                    background: i < errorCount
-                      ? (isAllWrong ? '#e63946' : '#f4a261') + '33'
-                      : '#10b98120',
-                    color: i < errorCount
-                      ? (isAllWrong ? '#e63946' : '#f4a261')
-                      : '#10b981',
+                    background:
+                      i < errorCount ? `${isAllWrong ? '#e63946' : '#f4a261'}33` : '#10b98120',
+                    color: i < errorCount ? (isAllWrong ? '#e63946' : '#f4a261') : '#10b981',
                     fontSize: '9px',
                   }}
                 >
@@ -157,10 +193,15 @@ function WeakKPRow({ stat, examGradeNum, examSemester }: { stat: KPStat; examGra
               <p className="text-xs text-text-dim mt-3 mb-2">以下前置知识点可能是根因：</p>
               <div className="flex flex-col gap-1">
                 {deps.map(d => (
-                  <div key={d.id} className="flex items-center gap-2 text-sm px-2 py-1.5 bg-surface2 rounded-lg">
+                  <div
+                    key={d.id}
+                    className="flex items-center gap-2 text-sm px-2 py-1.5 bg-surface2 rounded-lg"
+                  >
                     <span style={{ color: d.gradeColor }}>●</span>
                     <span>{d.name}</span>
-                    <Badge color={d.gradeColor} className="ml-auto">{d.gradeName}</Badge>
+                    <Badge color={d.gradeColor} className="ml-auto">
+                      {d.gradeName}
+                    </Badge>
                   </div>
                 ))}
               </div>
@@ -174,10 +215,21 @@ function WeakKPRow({ stat, examGradeNum, examSemester }: { stat: KPStat; examGra
   );
 }
 
-function PathTab({ weakStats, examGradeNum, examSemester }: { weakStats: KPStat[]; examGradeNum: number; examSemester: '上' | '下' }) {
+function PathTab({
+  weakStats,
+  examGradeNum,
+  examSemester,
+}: {
+  weakStats: KPStat[];
+  examGradeNum: number;
+  examSemester: '上' | '下';
+}) {
   const navigate = useNavigate();
   const minGrade = examSemester === '下' ? examGradeNum - 1 : examGradeNum - 1;
-  const rootCauses = new Map<string, { kpId: string; kpName: string; grade: string; gradeColor: string; reason: string }>();
+  const rootCauses = new Map<
+    string,
+    { kpId: string; kpName: string; grade: string; gradeColor: string; reason: string }
+  >();
 
   weakStats.forEach(stat => {
     const deps = getFullDepsChain(stat.kpId).filter(d => d.gradeNum >= minGrade);
@@ -215,7 +267,10 @@ function PathTab({ weakStats, examGradeNum, examSemester }: { weakStats: KPStat[
     <div className="flex flex-col gap-3">
       <p className="text-text-dim text-sm mb-2">建议按以下顺序补习（优先度从高到低）：</p>
       {prioritized.map((item, i) => (
-        <div key={item.kpId} className="flex items-start gap-4 bg-surface border border-border rounded-xl p-4">
+        <div
+          key={item.kpId}
+          className="flex items-start gap-4 bg-surface border border-border rounded-xl p-4"
+        >
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0"
             style={{ background: `${item.gradeColor}22`, color: item.gradeColor }}
@@ -243,15 +298,18 @@ function PathTab({ weakStats, examGradeNum, examSemester }: { weakStats: KPStat[
   );
 }
 
-/** 把选择题选项 label 转换为 "B: 答案内容" 格式 */
-function formatChoiceAnswer(label: string | undefined, choices: { label: string; content: string }[] | undefined): string {
+/** Formats a choice label and its content, for example "B: answer". */
+function formatChoiceAnswer(
+  label: string | undefined,
+  choices: { label: string; content: string }[] | undefined,
+): string {
   if (!label) return '（未作答）';
   if (!choices?.length) return label;
   const opt = choices.find(c => c.label === label);
   return opt ? `${label}：${opt.content}` : label;
 }
 
-/** 构造跳转到题目详情时携带用户答案的 query string */
+/** Builds the query string that carries answers to the question detail page. */
 function buildQuestionLink(choiceAnswer?: string, userAnswers?: string[]): string {
   const params = new URLSearchParams();
   if (choiceAnswer) params.set('ua', choiceAnswer);
@@ -261,19 +319,31 @@ function buildQuestionLink(choiceAnswer?: string, userAnswers?: string[]): strin
   return qs ? `?${qs}` : '';
 }
 
-/** 单道题的详情行 */
+/** Detail row for one question. */
 function QuestionRow({
-  q, session, expandedIds, toggle,
-}: { q: Question; session: ExamSession; expandedIds: Set<string>; toggle: (id: string) => void }) {
+  q,
+  session,
+  expandedIds,
+  toggle,
+}: {
+  q: Question;
+  session: ExamSession;
+  expandedIds: Set<string>;
+  toggle: (id: string) => void;
+}) {
   const qType: QuestionType = q.type || 'fill_blank';
   const userAnswers = session.answers[q.id] ?? [];
   const choiceAnswer = session.choiceAnswers?.[q.id];
-  const blanksCorrect = userAnswers.length === q.blanks.length
-    && userAnswers.every((a: string, j: number) => a.trim() === q.blanks[j]?.trim());
+  const blanksCorrect =
+    userAnswers.length === q.blanks.length &&
+    userAnswers.every((a: string, j: number) => a.trim() === q.blanks[j]?.trim());
   const choiceCorrect = !!choiceAnswer && choiceAnswer === q.correctChoice;
-  const isCorrect = qType === 'fill_blank' ? blanksCorrect
-    : qType === 'choice' ? choiceCorrect
-    : blanksCorrect && choiceCorrect;
+  const isCorrect =
+    qType === 'fill_blank'
+      ? blanksCorrect
+      : qType === 'choice'
+        ? choiceCorrect
+        : blanksCorrect && choiceCorrect;
   const isExpanded = expandedIds.has(q.id);
 
   const userChoiceDisplay = formatChoiceAnswer(choiceAnswer, q.choices);
@@ -284,7 +354,9 @@ function QuestionRow({
   return (
     <div className="border-b border-border last:border-b-0">
       <div className="flex items-start gap-3 px-4 py-3">
-        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs flex-shrink-0 mt-0.5 ${isCorrect ? 'bg-green/20 text-green' : 'bg-accent2/20 text-accent2'}`}>
+        <span
+          className={`w-5 h-5 rounded-full flex items-center justify-center text-xs flex-shrink-0 mt-0.5 ${isCorrect ? 'bg-green/20 text-green' : 'bg-accent2/20 text-accent2'}`}
+        >
           {isCorrect ? '✓' : '✗'}
         </span>
         <div className="flex-1 min-w-0">
@@ -294,7 +366,14 @@ function QuestionRow({
               <div className="flex flex-wrap gap-x-4 gap-y-0.5">
                 <span style={{ color: 'var(--text-dim)' }}>
                   你的选择：
-                  <span style={{ color: isCorrect || choiceAnswer === q.correctChoice ? 'var(--green)' : 'var(--accent2)' }}>
+                  <span
+                    style={{
+                      color:
+                        isCorrect || choiceAnswer === q.correctChoice
+                          ? 'var(--green)'
+                          : 'var(--accent2)',
+                    }}
+                  >
                     {userChoiceDisplay}
                   </span>
                 </span>
@@ -309,7 +388,9 @@ function QuestionRow({
               <div className="flex flex-wrap gap-x-4 gap-y-0.5">
                 <span style={{ color: 'var(--text-dim)' }}>
                   你的答案：
-                  <span style={{ color: isCorrect ? 'var(--green)' : 'var(--accent2)' }}>{userFillDisplay}</span>
+                  <span style={{ color: isCorrect ? 'var(--green)' : 'var(--accent2)' }}>
+                    {userFillDisplay}
+                  </span>
                 </span>
                 {!isCorrect && (
                   <span style={{ color: 'var(--text-dim)' }}>
@@ -325,7 +406,8 @@ function QuestionRow({
               className="flex items-center gap-1 text-xs font-mono transition-colors hover:underline"
               style={{ color: 'var(--blue)' }}
             >
-              #{q.id}<ExternalLink size={10} />
+              #{q.id}
+              <ExternalLink size={10} />
             </Link>
           </div>
         </div>
@@ -335,9 +417,13 @@ function QuestionRow({
             className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border transition-colors"
             style={{ borderColor: 'var(--border)', color: 'var(--text-dim)' }}
           >
-            <Eye size={11} />查看
+            <Eye size={11} />
+            查看
           </Link>
-          <button onClick={() => toggle(q.id)} className="text-text-dim hover:text-text text-xs flex items-center gap-0.5">
+          <button
+            onClick={() => toggle(q.id)}
+            className="text-text-dim hover:text-text text-xs flex items-center gap-0.5"
+          >
             解析 {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
         </div>
@@ -348,7 +434,9 @@ function QuestionRow({
             <p className="font-medium text-text mb-1">解题过程</p>
             <p className="leading-relaxed whitespace-pre-wrap">{renderSolution(q.solution)}</p>
             {q.common_mistake && (
-              <p className="mt-2 text-accent2 text-xs">⚠️ 常见错误：{renderSolution(q.common_mistake)}</p>
+              <p className="mt-2 text-accent2 text-xs">
+                ⚠️ 常见错误：{renderSolution(q.common_mistake)}
+              </p>
             )}
           </div>
         </div>
@@ -361,8 +449,9 @@ function isQuestionCorrect(q: Question, session: ExamSession): boolean {
   const qType: QuestionType = q.type || 'fill_blank';
   const userAnswers = session.answers[q.id] ?? [];
   const choiceAnswer = session.choiceAnswers?.[q.id];
-  const blanksCorrect = userAnswers.length === q.blanks.length
-    && userAnswers.every((a: string, j: number) => a.trim() === q.blanks[j]?.trim());
+  const blanksCorrect =
+    userAnswers.length === q.blanks.length &&
+    userAnswers.every((a: string, j: number) => a.trim() === q.blanks[j]?.trim());
   const choiceCorrect = !!choiceAnswer && choiceAnswer === q.correctChoice;
   if (qType === 'fill_blank') return blanksCorrect;
   if (qType === 'choice') return choiceCorrect;
@@ -373,13 +462,14 @@ function DetailTab({ session }: { session: ExamSession }) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [onlyWrong, setOnlyWrong] = useState(false);
   const [groupByKP, setGroupByKP] = useState(false);
-  // 知识点分组模式下，哪些组是展开的
+  // Track expanded groups in knowledge-point grouping mode.
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const toggle = (id: string) => {
     setExpandedIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -387,16 +477,27 @@ function DetailTab({ session }: { session: ExamSession }) {
   const toggleGroup = (kpId: string) => {
     setExpandedGroups(prev => {
       const next = new Set(prev);
-      if (next.has(kpId)) next.delete(kpId); else next.add(kpId);
+      if (next.has(kpId)) next.delete(kpId);
+      else next.add(kpId);
       return next;
     });
   };
 
   const allQuestions: Question[] = session.questions ?? [];
-  const filtered = onlyWrong ? allQuestions.filter(q => !isQuestionCorrect(q, session)) : allQuestions;
+  const filtered = onlyWrong
+    ? allQuestions.filter(q => !isQuestionCorrect(q, session))
+    : allQuestions;
 
-  // Toggle 开关组件
-  const ToggleSwitch = ({ label, value, onChange }: { label: string; value: boolean; onChange: () => void }) => (
+  // Toggle component.
+  const ToggleSwitch = ({
+    label,
+    value,
+    onChange,
+  }: {
+    label: string;
+    value: boolean;
+    onChange: () => void;
+  }) => (
     <div className="flex items-center gap-2">
       <span className="text-sm text-text-dim">{label}</span>
       <button
@@ -414,10 +515,14 @@ function DetailTab({ session }: { session: ExamSession }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 筛选栏 */}
+      {/* Filters. */}
       <div className="flex items-center justify-end gap-4 flex-wrap">
         <ToggleSwitch label="只看错题" value={onlyWrong} onChange={() => setOnlyWrong(v => !v)} />
-        <ToggleSwitch label="按知识点分类" value={groupByKP} onChange={() => setGroupByKP(v => !v)} />
+        <ToggleSwitch
+          label="按知识点分类"
+          value={groupByKP}
+          onChange={() => setGroupByKP(v => !v)}
+        />
       </div>
 
       {filtered.length === 0 && (
@@ -427,49 +532,70 @@ function DetailTab({ session }: { session: ExamSession }) {
         </div>
       )}
 
-      {/* 按考试顺序（默认） */}
+      {/* Exam order, used by default. */}
       {!groupByKP && filtered.length > 0 && (
         <div className="bg-surface border border-border rounded-xl overflow-hidden">
           <div className="flex flex-col">
             {filtered.map(q => (
-              <QuestionRow key={q.id} q={q} session={session} expandedIds={expandedIds} toggle={toggle} />
+              <QuestionRow
+                key={q.id}
+                q={q}
+                session={session}
+                expandedIds={expandedIds}
+                toggle={toggle}
+              />
             ))}
           </div>
         </div>
       )}
 
-      {/* 按知识点分类 */}
-      {groupByKP && filtered.length > 0 && (() => {
-        const groups = new Map<string, { kpName: string; questions: Question[] }>();
-        filtered.forEach(q => {
-          const g = groups.get(q.kp_id) ?? { kpName: q.kp_name, questions: [] };
-          g.questions.push(q);
-          groups.set(q.kp_id, g);
-        });
+      {/* Group by knowledge point. */}
+      {groupByKP &&
+        filtered.length > 0 &&
+        (() => {
+          const groups = new Map<string, { kpName: string; questions: Question[] }>();
+          filtered.forEach(q => {
+            const g = groups.get(q.kp_id) ?? { kpName: q.kp_name, questions: [] };
+            g.questions.push(q);
+            groups.set(q.kp_id, g);
+          });
 
-        return Array.from(groups.entries()).map(([kpId, grp]) => {
-          const isGroupOpen = expandedGroups.has(kpId);
-          return (
-            <div key={kpId} className="bg-surface border border-border rounded-xl overflow-hidden">
-              <button
-                onClick={() => toggleGroup(kpId)}
-                className="w-full px-4 py-3 border-b border-border bg-surface2 flex items-center gap-2 hover:bg-surface2/80 transition-colors text-left"
+          return Array.from(groups.entries()).map(([kpId, grp]) => {
+            const isGroupOpen = expandedGroups.has(kpId);
+            return (
+              <div
+                key={kpId}
+                className="bg-surface border border-border rounded-xl overflow-hidden"
               >
-                {isGroupOpen ? <ChevronUp size={14} className="text-text-dim" /> : <ChevronDown size={14} className="text-text-dim" />}
-                <span className="font-medium text-sm">{grp.kpName}</span>
-                <span className="text-text-dim text-xs">{grp.questions.length} 题</span>
-              </button>
-              {isGroupOpen && (
-                <div className="flex flex-col">
-                  {grp.questions.map(q => (
-                    <QuestionRow key={q.id} q={q} session={session} expandedIds={expandedIds} toggle={toggle} />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        });
-      })()}
+                <button
+                  onClick={() => toggleGroup(kpId)}
+                  className="w-full px-4 py-3 border-b border-border bg-surface2 flex items-center gap-2 hover:bg-surface2/80 transition-colors text-left"
+                >
+                  {isGroupOpen ? (
+                    <ChevronUp size={14} className="text-text-dim" />
+                  ) : (
+                    <ChevronDown size={14} className="text-text-dim" />
+                  )}
+                  <span className="font-medium text-sm">{grp.kpName}</span>
+                  <span className="text-text-dim text-xs">{grp.questions.length} 题</span>
+                </button>
+                {isGroupOpen && (
+                  <div className="flex flex-col">
+                    {grp.questions.map(q => (
+                      <QuestionRow
+                        key={q.id}
+                        q={q}
+                        session={session}
+                        expandedIds={expandedIds}
+                        toggle={toggle}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          });
+        })()}
     </div>
   );
 }
@@ -481,17 +607,18 @@ export default function ReportPage() {
   const { getSession } = useExamStore();
   const { buildReport, getReport } = useReportStore();
 
-  // Tab 状态由 URL hash 驱动，detail 是默认不带 hash
+  // Drive tab state from the URL hash; detail is the hash-free default.
   const hashTab = location.hash.replace('#', '');
-  const activeTab = (hashTab === 'weak' || hashTab === 'path') ? hashTab : 'detail';
-  const setActiveTab = useCallback((id: string) => {
-    navigate({ hash: id === 'detail' ? '' : `#${id}` }, { replace: true });
-  }, [navigate]);
+  const activeTab = hashTab === 'weak' || hashTab === 'path' ? hashTab : 'detail';
+  const setActiveTab = useCallback(
+    (id: string) => {
+      navigate({ hash: id === 'detail' ? '' : `#${id}` }, { replace: true });
+    },
+    [navigate],
+  );
 
   const session = sessionId ? getSession(sessionId) : null;
-  const report = session
-    ? (getReport(sessionId!) ?? buildReport(session))
-    : null;
+  const report = session ? (getReport(sessionId!) ?? buildReport(session)) : null;
 
   if (!session || !report) {
     return (
@@ -503,30 +630,36 @@ export default function ReportPage() {
   }
 
   const score = calcScore(session);
-  const correctRate = report.totalQuestions > 0
-    ? (report.correctCount / report.totalQuestions * 100).toFixed(1)
-    : '0';
-  const weakStats = report.kpStats.filter(s => s.errorRate > 0.5).sort((a, b) => b.errorRate - a.errorRate);
+  const correctRate =
+    report.totalQuestions > 0
+      ? ((report.correctCount / report.totalQuestions) * 100).toFixed(1)
+      : '0';
+  const weakStats = report.kpStats
+    .filter(s => s.errorRate > 0.5)
+    .sort((a, b) => b.errorRate - a.errorRate);
 
   return (
     <div className="min-h-screen pt-20 px-4 sm:px-6 py-10">
       <div className="max-w-3xl mx-auto">
-        {/* 顶部标注 */}
+        {/* Header label. */}
         <div className="flex items-center gap-2 mb-6">
           <span className="text-xs px-2 py-1 rounded-full bg-green/10 border border-green/30 text-green">
             数据来源：平台智能考试（高置信度）
           </span>
         </div>
 
-        {/* 圆形分数 + 摘要 */}
+        {/* Circular score and summary. */}
         <div className="bg-surface border border-border rounded-2xl p-6 mb-6 flex flex-col sm:flex-row items-center gap-6">
           <ScoreCircle score={score} />
           <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3 w-full">
             {[
-              { label: '总题数',    value: report.totalQuestions },
-              { label: '答对题数',  value: report.correctCount },
-              { label: '答对率',    value: `${correctRate}%` },
-              { label: '完成时长',  value: report.duration > 0 ? formatDuration(report.duration) : '—' },
+              { label: '总题数', value: report.totalQuestions },
+              { label: '答对题数', value: report.correctCount },
+              { label: '答对率', value: `${correctRate}%` },
+              {
+                label: '完成时长',
+                value: report.duration > 0 ? formatDuration(report.duration) : '—',
+              },
               { label: '覆盖知识点', value: `${report.kpStats.length} 个` },
               { label: '薄弱知识点', value: `${weakStats.length} 个` },
             ].map(({ label, value }) => (
@@ -538,7 +671,7 @@ export default function ReportPage() {
           </div>
         </div>
 
-        {/* 错题重做入口 */}
+        {/* Retry incorrect questions. */}
         <Button
           variant="primary"
           size="lg"
@@ -549,7 +682,7 @@ export default function ReportPage() {
           错题重做
         </Button>
 
-        {/* Tab 导航 */}
+        {/* Tab navigation. */}
         <div className="flex gap-1 bg-surface border border-border rounded-xl p-1 mb-6">
           {TABS.map(({ id, label, Icon }) => (
             <button
@@ -566,7 +699,7 @@ export default function ReportPage() {
           ))}
         </div>
 
-        {/* Tab 内容 */}
+        {/* Tab content. */}
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -583,12 +716,25 @@ export default function ReportPage() {
                     <p>没有明显薄弱点，学得不错！</p>
                   </div>
                 ) : (
-                  weakStats.map(stat => <WeakKPRow key={stat.kpId} stat={stat} examGradeNum={session.config.gradeNum ?? 6} examSemester={session.config.semester ?? '下'} />)
+                  weakStats.map(stat => (
+                    <WeakKPRow
+                      key={stat.kpId}
+                      stat={stat}
+                      examGradeNum={session.config.gradeNum ?? 6}
+                      examSemester={session.config.semester ?? '下'}
+                    />
+                  ))
                 )}
               </div>
             )}
 
-            {activeTab === 'path' && <PathTab weakStats={weakStats} examGradeNum={session.config.gradeNum ?? 6} examSemester={session.config.semester ?? '下'} />}
+            {activeTab === 'path' && (
+              <PathTab
+                weakStats={weakStats}
+                examGradeNum={session.config.gradeNum ?? 6}
+                examSemester={session.config.semester ?? '下'}
+              />
+            )}
 
             {activeTab === 'detail' && <DetailTab session={session} />}
           </motion.div>

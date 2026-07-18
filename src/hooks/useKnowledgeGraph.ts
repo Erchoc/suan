@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { kpMap, bridgeMap, getFullDepsChain, getDependents } from '../data/kpIndex';
 import type { KPWithContext } from '../data/kpIndex';
+import { bridgeMap, getDependents, getFullDepsChain, kpMap } from '../data/kpIndex';
 
 export function useKnowledgeGraph() {
   const allKPs = useMemo(() => Array.from(kpMap.values()), []);

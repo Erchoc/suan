@@ -1,33 +1,33 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
-// ─── 类型 ──────────────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────
 
 export type KeyboardMode = 'number' | 'choice';
 
 interface CustomKeyboardProps {
-  /** 键盘是否可见 */
+  /** Whether the keyboard is visible. */
   visible: boolean;
-  /** 键盘模式：数字九宫格 or ABCD选择 */
+  /** Numeric keypad or A-D choice mode. */
   mode: KeyboardMode;
-  /** 当前聚焦的空的值（用于顶部回显） */
+  /** Value of the focused blank displayed in the header. */
   currentValue: string;
-  /** 当前是否是最后一个操作项（决定按钮文案） */
+  /** Whether the current blank is the last item, which controls the action label. */
   isLast: boolean;
-  /** 当前空的序号（0-based） */
+  /** Zero-based index of the current blank. */
   blankIndex: number;
-  /** 总空数 */
+  /** Total number of blanks. */
   totalBlanks: number;
-  /** 按下数字/字母键 */
+  /** Handles a numeric or letter key press. */
   onInput: (char: string) => void;
-  /** 退格 */
+  /** Handles backspace. */
   onBackspace: () => void;
-  /** 完成当前空 → 前进到下一空或关闭键盘 */
+  /** Completes the current blank, then advances or closes the keyboard. */
   onNext: () => void;
-  /** 关闭键盘 */
+  /** Closes the keyboard. */
   onClose: () => void;
 }
 
-// ─── 九宫格数字键盘（退格 + 完成 合并到右侧列）────────────────────────────
+// ─── Numeric keypad with backspace and completion actions in the right column ───
 
 const NUM_ROWS = [
   ['7', '8', '9'],
@@ -49,14 +49,17 @@ function NumPad({
 }) {
   return (
     <div className="flex gap-2">
-      {/* 数字区 */}
+      {/* Numeric keys */}
       <div className="flex-1 grid grid-rows-4 gap-1.5">
         {NUM_ROWS.map((row, ri) => (
           <div key={ri} className="grid grid-cols-3 gap-1.5">
             {row.map(key => (
               <button
                 key={key}
-                onPointerDown={e => { e.preventDefault(); onInput(key); }}
+                onPointerDown={e => {
+                  e.preventDefault();
+                  onInput(key);
+                }}
                 className="
                   h-10 rounded-xl text-base font-mono font-semibold
                   bg-surface2 border border-border
@@ -71,10 +74,13 @@ function NumPad({
         ))}
       </div>
 
-      {/* 右侧功能列：退格（上）+ 完成（下，占 2 格高度） */}
+      {/* Action column: backspace above a double-height completion button */}
       <div className="flex flex-col gap-1.5 w-14">
         <button
-          onPointerDown={e => { e.preventDefault(); onBackspace(); }}
+          onPointerDown={e => {
+            e.preventDefault();
+            onBackspace();
+          }}
           className="
             flex-1 rounded-xl text-xl
             bg-surface2 border border-border
@@ -85,7 +91,10 @@ function NumPad({
           ⌫
         </button>
         <button
-          onPointerDown={e => { e.preventDefault(); onNext(); }}
+          onPointerDown={e => {
+            e.preventDefault();
+            onNext();
+          }}
           className="
             flex-[2] rounded-xl text-xs font-semibold leading-tight
             bg-accent text-white
@@ -100,7 +109,7 @@ function NumPad({
   );
 }
 
-// ─── ABCD 选择键盘 ──────────────────────────────────────────────────────────
+// ─── A-D choice keypad ─────────────────────────────────────────────────────
 
 function ChoicePad({ onInput }: { onInput: (c: string) => void }) {
   return (
@@ -108,7 +117,10 @@ function ChoicePad({ onInput }: { onInput: (c: string) => void }) {
       {['A', 'B', 'C', 'D'].map(label => (
         <button
           key={label}
-          onPointerDown={e => { e.preventDefault(); onInput(label); }}
+          onPointerDown={e => {
+            e.preventDefault();
+            onInput(label);
+          }}
           className="
             h-14 rounded-2xl text-2xl font-bold
             bg-surface2 border-2 border-border
@@ -123,7 +135,7 @@ function ChoicePad({ onInput }: { onInput: (c: string) => void }) {
   );
 }
 
-// ─── 主组件 ────────────────────────────────────────────────────────────────
+// ─── Main component ────────────────────────────────────────────────────────
 
 export default function CustomKeyboard({
   visible,
@@ -137,10 +149,8 @@ export default function CustomKeyboard({
   onNext,
   onClose,
 }: CustomKeyboardProps) {
-  // 显示 1-based 序号；多空时显示"第 X 空"，单空时隐藏
-  const blankLabel = mode === 'number' && totalBlanks > 1
-    ? `第 ${blankIndex + 1} 空`
-    : null;
+  // Show a one-based label only when the question contains multiple blanks.
+  const blankLabel = mode === 'number' && totalBlanks > 1 ? `第 ${blankIndex + 1} 空` : null;
 
   const nextLabel = isLast ? '完\n成' : `下一空`;
 
@@ -156,13 +166,13 @@ export default function CustomKeyboard({
           style={{ bottom: 'var(--tab-bar-h)' }}
           onPointerDown={e => e.stopPropagation()}
         >
-          {/* 顶部拖拽条 */}
+          {/* Top drag handle */}
           <div className="flex justify-center pt-2 pb-1">
             <div className="w-10 h-1 rounded-full bg-border" />
           </div>
 
           <div className="px-4 pb-4 pt-1.5 space-y-2">
-            {/* 当前值回显 + 空位序号 + 收起 */}
+            {/* Current value, blank index, and collapse action */}
             <div className="flex items-center justify-between">
               <span className="text-xs text-text-dim">
                 {blankLabel ?? (mode === 'number' ? '填写答案' : '选择答案')}
@@ -172,7 +182,10 @@ export default function CustomKeyboard({
                   {currentValue || <span className="text-text-dim/40">—</span>}
                 </span>
                 <button
-                  onPointerDown={e => { e.preventDefault(); onClose(); }}
+                  onPointerDown={e => {
+                    e.preventDefault();
+                    onClose();
+                  }}
                   className="text-xs text-text-dim px-2 py-1 rounded-lg hover:bg-surface2 transition-colors"
                 >
                   收起
@@ -180,7 +193,7 @@ export default function CustomKeyboard({
               </div>
             </div>
 
-            {/* 键盘主体 */}
+            {/* Keyboard body */}
             <AnimatePresence mode="wait">
               <motion.div
                 key={mode}

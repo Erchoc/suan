@@ -1,20 +1,34 @@
-import { useState, useEffect } from 'react';
+import { AlertTriangle, BookOpen, CheckCircle2, Hash, Lightbulb, XCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, BookOpen, CheckCircle2, XCircle, Lightbulb, Hash } from 'lucide-react';
 import Badge from '../../components/ui/Badge';
 import type { Question, QuestionType } from '../../types';
 import { stripLatex } from '../../utils/latex';
 
-// ─── 常量 ─────────────────────────────────────────────────────────────────────
+// Constants.
 
 const difficultyLabel = { easy: '简单', medium: '中等', hard: '困难' };
 const difficultyColor = { easy: '#10b981', medium: '#f59e0b', hard: '#ef4444' };
-const typeLabel: Record<QuestionType, string> = { fill_blank: '填空', choice: '选择', mixed: '综合' };
-const typeColor: Record<QuestionType, string> = { fill_blank: '#6366f1', choice: '#06b6d4', mixed: '#8b5cf6' };
+const typeLabel: Record<QuestionType, string> = {
+  fill_blank: '填空',
+  choice: '选择',
+  mixed: '综合',
+};
+const typeColor: Record<QuestionType, string> = {
+  fill_blank: '#6366f1',
+  choice: '#06b6d4',
+  mixed: '#8b5cf6',
+};
 
-// ─── 填空题正文：复用考试输入框样式，只读展示 ────────────────────────────────
+// Read-only fill-in-the-blank content using the exam input style.
 
-function ReadonlyFillBlanks({ question, userBlanks }: { question: Question; userBlanks?: string[] }) {
+function ReadonlyFillBlanks({
+  question,
+  userBlanks,
+}: {
+  question: Question;
+  userBlanks?: string[];
+}) {
   const parts = stripLatex(question.question).split('____');
   return (
     <span className="leading-loose text-lg font-serif text-text">
@@ -30,7 +44,7 @@ function ReadonlyFillBlanks({ question, userBlanks }: { question: Question; user
             {part}
             {i < parts.length - 1 && (
               <span className="inline-flex flex-col items-center mx-1 gap-0.5 align-middle">
-                {/* 输入框（只读，颜色表示对错） */}
+                {/* Read-only input whose color indicates correctness. */}
                 <span
                   className="inline-flex items-center justify-center w-28 h-[34px] px-2 rounded border-b-2 font-mono text-base text-center transition-all"
                   style={{
@@ -39,25 +53,18 @@ function ReadonlyFillBlanks({ question, userBlanks }: { question: Question; user
                       : isWrong
                         ? 'rgba(239,68,68,0.10)'
                         : 'var(--surface2)',
-                    borderColor: isRight
-                      ? '#10b981'
-                      : isWrong
-                        ? '#ef4444'
-                        : 'var(--accent)',
-                    color: isRight
-                      ? '#10b981'
-                      : isWrong
-                        ? '#ef4444'
-                        : 'var(--text-dim)',
+                    borderColor: isRight ? '#10b981' : isWrong ? '#ef4444' : 'var(--accent)',
+                    color: isRight ? '#10b981' : isWrong ? '#ef4444' : 'var(--text-dim)',
                     fontSize: '1rem',
                   }}
                 >
-                  {hasUser
-                    ? userAns
-                    : <span style={{ opacity: 0.3, fontSize: '0.7rem' }}>未填</span>
-                  }
+                  {hasUser ? (
+                    userAns
+                  ) : (
+                    <span style={{ opacity: 0.3, fontSize: '0.7rem' }}>未填</span>
+                  )}
                 </span>
-                {/* 正确答案提示（仅填错时显示在框下方） */}
+                {/* Correct-answer hint shown below an incorrect blank. */}
                 {isWrong && (
                   <span
                     className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-xs font-mono font-semibold"
@@ -76,13 +83,13 @@ function ReadonlyFillBlanks({ question, userBlanks }: { question: Question; user
   );
 }
 
-// ─── 选择题选项 ───────────────────────────────────────────────────────────────
-// 三种模式：
-//   interactive=true, userChoice 无值 → 可点击，考试同款悬停效果
-//   userChoice 有值，revealed=false   → 黄色高亮用户所选，不展示对错
-//   userChoice 有值，revealed=true    → 黄色高亮用户所选 + 对错标签 + 绿色高亮正确答案
+// Multiple-choice options.
+// Three modes:
+// interactive=true with no userChoice: clickable with the exam hover treatment.
+// userChoice set and revealed=false: highlight the selection without correctness.
+// userChoice set and revealed=true: show the selection, correctness label, and correct answer.
 
-// revealed=true 时展示对错标签（有用户作答记录）；正确答案始终绿色高亮
+// When revealed=true, show the recorded result and always highlight the correct answer.
 function ReadonlyChoices({
   question,
   userChoice,
@@ -101,10 +108,10 @@ function ReadonlyChoices({
         const isUserChoice = c.label === userChoice;
         const isUserRight = isUserChoice && isCorrect;
         const isUserWrong = isUserChoice && !isCorrect;
-        // 正确但未被用户选中（或根本没有用户作答）→ 绿色
+        // Highlight a correct option in green even when it was not selected.
         const showAsCorrect = isCorrect && !isUserChoice;
 
-        // 容器样式
+        // Container styles.
         let containerCls = 'bg-surface border border-border';
         let containerStyle: React.CSSProperties = {};
         if (isUserChoice) {
@@ -118,7 +125,7 @@ function ReadonlyChoices({
           };
         }
 
-        // 圆圈样式
+        // Circle styles.
         let circleCls = 'bg-surface2 text-text-dim';
         let circleStyle: React.CSSProperties = {};
         if (isUserChoice) {
@@ -128,16 +135,37 @@ function ReadonlyChoices({
           circleStyle = { background: 'var(--green)' };
         }
 
-        const textCls = (isUserChoice || showAsCorrect) ? 'text-text font-medium' : 'text-text-dim';
+        const textCls = isUserChoice || showAsCorrect ? 'text-text font-medium' : 'text-text-dim';
 
         let tag: React.ReactNode = null;
         if (revealed) {
           if (isUserRight) {
-            tag = <span className="flex items-center gap-0.5 text-xs font-medium mt-1" style={{ color: 'var(--green)' }}><CheckCircle2 size={11} />你答对了</span>;
+            tag = (
+              <span
+                className="flex items-center gap-0.5 text-xs font-medium mt-1"
+                style={{ color: 'var(--green)' }}
+              >
+                <CheckCircle2 size={11} />
+                你答对了
+              </span>
+            );
           } else if (isUserWrong) {
-            tag = <span className="flex items-center gap-0.5 text-xs text-red-400 font-medium mt-1"><XCircle size={11} />你选错了</span>;
+            tag = (
+              <span className="flex items-center gap-0.5 text-xs text-red-400 font-medium mt-1">
+                <XCircle size={11} />
+                你选错了
+              </span>
+            );
           } else if (showAsCorrect) {
-            tag = <span className="flex items-center gap-0.5 text-xs font-medium mt-1" style={{ color: 'var(--green)' }}><CheckCircle2 size={11} />正确答案</span>;
+            tag = (
+              <span
+                className="flex items-center gap-0.5 text-xs font-medium mt-1"
+                style={{ color: 'var(--green)' }}
+              >
+                <CheckCircle2 size={11} />
+                正确答案
+              </span>
+            );
           }
         }
 
@@ -164,9 +192,13 @@ function ReadonlyChoices({
   );
 }
 
-// ─── 信息块 ───────────────────────────────────────────────────────────────────
+// Information block.
 
-function InfoBlock({ icon, label, children }: {
+function InfoBlock({
+  icon,
+  label,
+  children,
+}: {
   icon: React.ReactNode;
   label: string;
   children: React.ReactNode;
@@ -182,7 +214,7 @@ function InfoBlock({ icon, label, children }: {
   );
 }
 
-// ─── 主页面 ───────────────────────────────────────────────────────────────────
+// Main page.
 
 export default function QuestionDetailPage() {
   const { questionId } = useParams<{ questionId: string }>();
@@ -191,7 +223,7 @@ export default function QuestionDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // 从 URL 读取用户作答：ua = 选择题选项，ub = 填空答案（逗号分隔）
+  // Read answers from the URL: ua is the choice and ub contains comma-separated blank answers.
   const userChoice = searchParams.get('ua') ?? undefined;
   const userBlanks: string[] | undefined = searchParams.has('ub')
     ? searchParams.get('ub')!.split(',')
@@ -239,8 +271,7 @@ export default function QuestionDetailPage() {
   return (
     <div className="pt-14 min-h-screen" style={{ background: 'var(--bg)' }}>
       <div className="max-w-2xl mx-auto px-4 py-8">
-
-        {/* 争议提示 */}
+        {/* Dispute notice. */}
         {question.enable === false && (
           <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 text-sm mb-6">
             <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
@@ -253,41 +284,35 @@ export default function QuestionDetailPage() {
           </div>
         )}
 
-        {/* 题目 ID */}
+        {/* Question ID. */}
         <div className="flex items-center gap-1.5 text-xs text-text-dim mb-4 font-mono">
           <Hash size={12} />
           {question.id}
         </div>
 
-        {/* 元信息徽章 */}
+        {/* Metadata badges. */}
         <div className="flex items-center gap-2 flex-wrap mb-4">
           <Badge color={difficultyColor[question.difficulty]}>
             {difficultyLabel[question.difficulty]}
           </Badge>
-          <Badge color={typeColor[qType]}>
-            {typeLabel[qType]}
-          </Badge>
+          <Badge color={typeColor[qType]}>{typeLabel[qType]}</Badge>
           <Badge color="#7b2d8b">{question.kp_name}</Badge>
           <Badge color="#3b82f6">{question.grade}</Badge>
-          {question.semester && (
-            <Badge color="#64748b">{question.semester}</Badge>
-          )}
-          {question.enable === false && (
-            <Badge color="#ef4444">已禁用</Badge>
-          )}
-          {hasUrlUserData && (
-            <Badge color="#6366f1">含作答记录</Badge>
-          )}
+          {question.semester && <Badge color="#64748b">{question.semester}</Badge>}
+          {question.enable === false && <Badge color="#ef4444">已禁用</Badge>}
+          {hasUrlUserData && <Badge color="#6366f1">含作答记录</Badge>}
         </div>
 
-        {/* 题目正文 + 选项 */}
+        {/* Question content and choices. */}
         <div className="bg-surface2 rounded-xl p-5 sm:p-6 mb-6">
-          {(qType === 'fill_blank' || qType === 'mixed') ? (
+          {qType === 'fill_blank' || qType === 'mixed' ? (
             <div className="flex items-start flex-wrap">
               <ReadonlyFillBlanks question={question} userBlanks={userBlanks} />
             </div>
           ) : (
-            <p className="text-lg font-serif text-text leading-relaxed">{stripLatex(question.question)}</p>
+            <p className="text-lg font-serif text-text leading-relaxed">
+              {stripLatex(question.question)}
+            </p>
           )}
           {(qType === 'choice' || qType === 'mixed') && (
             <ReadonlyChoices
@@ -298,7 +323,7 @@ export default function QuestionDetailPage() {
           )}
         </div>
 
-        {/* 解析区（始终显示） */}
+        {/* Explanation area, always visible. */}
         <div className="flex flex-col gap-3">
           {question.solution && (
             <InfoBlock icon={<BookOpen size={12} />} label="解题过程">
@@ -316,7 +341,6 @@ export default function QuestionDetailPage() {
             </InfoBlock>
           )}
         </div>
-
       </div>
     </div>
   );

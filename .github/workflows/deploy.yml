@@ -1,4 +1,4 @@
-name: 部署到 Cloudflare Workers
+name: Deploy to Cloudflare Workers
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - main
   workflow_dispatch:
 
-# 部署只需要读取仓库内容；Cloudflare 凭据由仓库机密注入。
+# Deployment only needs read access to the repository; repository secrets provide Cloudflare credentials.
 permissions:
   contents: read
 
@@ -16,37 +16,43 @@ concurrency:
 
 jobs:
   deploy:
-    name: 检查并部署生产环境
-    # 新仓库默认只跑 CI；配置两项仓库机密并将变量
-    # CLOUDFLARE_DEPLOY_ENABLED 设为 true 后，main 推送才自动发布。
-    if: github.event_name == 'workflow_dispatch' || vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    name: Check and Deploy Production
+    # New repositories run CI only. Configure both repository secrets and set
+    # CLOUDFLARE_DEPLOY_ENABLED to true before push or manual deployments can run.
+    if: vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # 部署前检查使用公开占位值，生产 AI 密钥由 Cloudflare Worker 管理。
-      AI_API_KEY: deploy-check-placeholder-not-a-secret
+      # The Cloudflare Vite plugin selects environments while building, not while deploying.
+      CLOUDFLARE_ENV: production
     steps:
-      - name: 检出代码
+      - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: 配置 pnpm
+      - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 10.12.4
 
-      - name: 配置 Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 22.13.0
           cache: pnpm
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: 部署前执行完整检查
-        run: pnpm check
+      - name: Run all checks before deployment
+        run: pnpm run ci
+        env:
+          # Build-only placeholders never replace the production Worker secrets.
+          BASE_URL: https://api.deepseek.com
+          API_KEY: deploy-check-placeholder-not-a-secret
+          MODEL: deepseek-v4-flash
+          AI_PROTOCOL: openai-chat
 
-      - name: 部署到 Cloudflare Workers
+      - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

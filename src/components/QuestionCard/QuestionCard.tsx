@@ -1,17 +1,25 @@
-import { useRef, useEffect, useCallback, useState } from 'react';
-import { SkipForward, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Flag, AlertTriangle } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import Button from '../ui/Button';
-import Badge from '../ui/Badge';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  AlertTriangle,
+  Bookmark,
+  BookmarkCheck,
+  ChevronLeft,
+  ChevronRight,
+  Flag,
+  SkipForward,
+} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Question, QuestionType } from '../../types';
 import { stripLatex } from '../../utils/latex';
+import Badge from '../ui/Badge';
+import Button from '../ui/Button';
 
 interface CustomKeyboardConfig {
-  /** 是否启用自定义键盘（禁用原生 input） */
+  /** Enables the custom keyboard instead of the native input. */
   enabled: boolean;
-  /** 当前聚焦的空的索引（null = 无聚焦） */
+  /** Index of the focused blank, or null when none is focused. */
   focusedBlankIndex: number | null;
-  /** 点击某个空时通知外部 */
+  /** Notifies the parent when a blank receives focus. */
   onBlankFocus: (index: number) => void;
 }
 
@@ -33,16 +41,24 @@ interface QuestionCardProps {
   onNext: () => void;
   onPrev: () => void;
   defaultShowHint?: boolean;
-  /** 是否允许显示解题提示入口（考试模式传 false） */
+  /** Allows the solution hint entry point; exam mode passes false. */
   allowHint?: boolean;
-  /** 自定义键盘配置（移动端低年级专属） */
+  /** Custom keyboard configuration for younger students on mobile. */
   customKeyboard?: CustomKeyboardConfig;
 }
 
 const difficultyLabel = { easy: '简单', medium: '中等', hard: '困难' };
 const difficultyColor = { easy: '#10b981', medium: '#f59e0b', hard: '#ef4444' };
-const typeLabel: Record<QuestionType, string> = { fill_blank: '填空', choice: '选择', mixed: '综合' };
-const typeColor: Record<QuestionType, string> = { fill_blank: '#6366f1', choice: '#06b6d4', mixed: '#8b5cf6' };
+const typeLabel: Record<QuestionType, string> = {
+  fill_blank: '填空',
+  choice: '选择',
+  mixed: '综合',
+};
+const typeColor: Record<QuestionType, string> = {
+  fill_blank: '#6366f1',
+  choice: '#06b6d4',
+  mixed: '#8b5cf6',
+};
 
 function renderFillBlanks(
   text: string = '',
@@ -57,16 +73,16 @@ function renderFillBlanks(
       {parts.map((part, i) => (
         <span key={i}>
           {part}
-          {i < parts.length - 1 && (
-            customKeyboard?.enabled ? (
-              // 自定义键盘模式：固定高度 div，禁用系统键盘，点击唤起键盘
-              <span
-                role="button"
-                tabIndex={0}
+          {i < parts.length - 1 &&
+            (customKeyboard?.enabled ? (
+              // Custom keyboard mode uses a fixed-height element and suppresses the system keyboard.
+              <button
+                type="button"
                 onPointerDown={e => {
                   e.preventDefault();
                   customKeyboard.onBlankFocus(i);
                 }}
+                onClick={() => customKeyboard.onBlankFocus(i)}
                 className="
                   inline-flex items-center justify-center
                   w-28 h-[34px] mx-1 px-2
@@ -75,12 +91,12 @@ function renderFillBlanks(
                 "
                 style={{
                   background: 'var(--surface2)',
-                  borderColor: customKeyboard.focusedBlankIndex === i
-                    ? 'var(--accent)'
-                    : 'var(--border)',
-                  boxShadow: customKeyboard.focusedBlankIndex === i
-                    ? '0 0 0 2px rgba(255,137,6,0.25)'
-                    : 'none',
+                  borderColor:
+                    customKeyboard.focusedBlankIndex === i ? 'var(--accent)' : 'var(--border)',
+                  boxShadow:
+                    customKeyboard.focusedBlankIndex === i
+                      ? '0 0 0 2px rgba(255,137,6,0.25)'
+                      : 'none',
                   color: answers[i] ? 'var(--text)' : 'var(--text-dim)',
                   fontFamily: 'monospace',
                   fontSize: '1rem',
@@ -91,14 +107,14 @@ function renderFillBlanks(
                     {customKeyboard.focusedBlankIndex === i ? '●' : '点击输入'}
                   </span>
                 )}
-              </span>
+              </button>
             ) : (
-              // 普通模式：原生 input
+              // Standard mode uses the native input.
               <input
                 ref={i === 0 ? (firstInputRef as React.RefObject<HTMLInputElement>) : undefined}
                 type="text"
                 value={answers[i] ?? ''}
-                onChange={(e) => onChange(i, e.target.value.replace(/\s/g, ''))}
+                onChange={e => onChange(i, e.target.value.replace(/\s/g, ''))}
                 className="
                   inline-block w-28 mx-1 px-2 py-1
                   bg-surface2 border-b-2 border-accent
@@ -108,8 +124,7 @@ function renderFillBlanks(
                 "
                 placeholder=""
               />
-            )
-          )}
+            ))}
         </span>
       ))}
     </span>
@@ -137,9 +152,10 @@ function ChoiceOptions({
             onClick={() => onChange(c.label)}
             className={`
               flex items-start gap-3 p-4 rounded-xl text-left transition-all
-              ${active
-                ? 'bg-accent/15 border-accent ring-1 ring-accent/30'
-                : 'bg-surface border-border hover:border-text-dim'
+              ${
+                active
+                  ? 'bg-accent/15 border-accent ring-1 ring-accent/30'
+                  : 'bg-surface border-border hover:border-text-dim'
               }
               border
             `}
@@ -190,33 +206,42 @@ export default function QuestionCard({
   const [issueText, setIssueText] = useState(issueReport ?? '');
   const [showHint, setShowHint] = useState(defaultShowHint);
 
-  // 切题时重置异常面板状态
+  // Reset the issue panel when the question changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The question ID intentionally resets state when object data is reused.
   useEffect(() => {
     setShowIssueInput(!!issueReport);
     setIssueText(issueReport ?? '');
   }, [question.id, issueReport]);
 
-  // 切题时重置 hint 展开状态
+  // Reset the expanded hint state when the question changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The question ID intentionally resets state when object data is reused.
   useEffect(() => {
     setShowHint(defaultShowHint);
   }, [question.id, defaultShowHint]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The question ID intentionally retriggers focus for same-type questions.
   useEffect(() => {
     if (qType !== 'choice') {
       firstInputRef.current?.focus();
     }
   }, [question.id, qType]);
 
-  // 键盘快捷键 A/B/C/D 选择
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (qType === 'fill_blank' || !onChoiceChange) return;
-    const key = e.key.toUpperCase();
-    if (['A', 'B', 'C', 'D'].includes(key) && question.choices?.some(c => c.label === key)) {
-      if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
-        onChoiceChange(key);
+  // Support A-D keyboard shortcuts for choice questions.
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (qType === 'fill_blank' || !onChoiceChange) return;
+      const key = e.key.toUpperCase();
+      if (['A', 'B', 'C', 'D'].includes(key) && question.choices?.some(c => c.label === key)) {
+        if (
+          document.activeElement?.tagName !== 'INPUT' &&
+          document.activeElement?.tagName !== 'TEXTAREA'
+        ) {
+          onChoiceChange(key);
+        }
       }
-    }
-  }, [qType, onChoiceChange, question.choices]);
+    },
+    [qType, onChoiceChange, question.choices],
+  );
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -228,7 +253,7 @@ export default function QuestionCard({
 
   return (
     <div className="flex flex-col gap-6">
-      {/* 进度提示 */}
+      {/* Progress summary */}
       <div className="flex items-center justify-between text-sm text-text-dim">
         <span>
           第 <span className="text-accent font-semibold">{index + 1}</span> / {totalQuestions} 题
@@ -241,19 +266,17 @@ export default function QuestionCard({
         <span>{isBookmarked ? '★ 已收藏' : ''}</span>
       </div>
 
-      {/* 题目元信息 */}
+      {/* Question metadata */}
       <div className="flex items-center gap-2 flex-wrap">
         <Badge color={difficultyColor[question.difficulty]}>
           {difficultyLabel[question.difficulty]}
         </Badge>
-        <Badge color={typeColor[qType]}>
-          {typeLabel[qType]}
-        </Badge>
+        <Badge color={typeColor[qType]}>{typeLabel[qType]}</Badge>
         <Badge color="#7b2d8b">{question.kp_name}</Badge>
         <Badge color="#3b82f6">{question.grade}</Badge>
       </div>
 
-      {/* 争议题目提示（enable=false） */}
+      {/* Warning for disputed questions with enable=false */}
       {question.enable === false && (
         <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 text-sm">
           <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
@@ -261,14 +284,22 @@ export default function QuestionCard({
         </div>
       )}
 
-      {/* 题目正文 */}
+      {/* Question content */}
       <div className="bg-surface2 rounded-xl p-4 sm:p-6 min-h-24">
-        {(qType === 'fill_blank' || qType === 'mixed') ? (
+        {qType === 'fill_blank' || qType === 'mixed' ? (
           <div className="flex items-center flex-wrap">
-            {renderFillBlanks(question.question, answers, onAnswerChange, firstInputRef, customKeyboard)}
+            {renderFillBlanks(
+              question.question,
+              answers,
+              onAnswerChange,
+              firstInputRef,
+              customKeyboard,
+            )}
           </div>
         ) : (
-          <p className="text-lg font-serif text-text leading-relaxed">{stripLatex(question.question)}</p>
+          <p className="text-lg font-serif text-text leading-relaxed">
+            {stripLatex(question.question)}
+          </p>
         )}
 
         {(qType === 'choice' || qType === 'mixed') && (
@@ -280,14 +311,9 @@ export default function QuestionCard({
         )}
       </div>
 
-      {/* 操作按钮 */}
+      {/* Question actions */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <Button
-          variant="secondary"
-          onClick={onPrev}
-          disabled={index === 0}
-          className="h-10"
-        >
+        <Button variant="secondary" onClick={onPrev} disabled={index === 0} className="h-10">
           <ChevronLeft size={16} />
           <span className="hidden sm:inline">上一题</span>
         </Button>
@@ -327,7 +353,7 @@ export default function QuestionCard({
         </Button>
       </div>
 
-      {/* 异常题目输入框 */}
+      {/* Issue report input */}
       <AnimatePresence>
         {showIssueInput && (
           <motion.div
@@ -356,7 +382,7 @@ export default function QuestionCard({
         )}
       </AnimatePresence>
 
-      {/* 提示 */}
+      {/* Completion guidance */}
       {!hasAnsweredAll && (
         <p className="text-xs text-text-dim">
           {qType === 'fill_blank' && blankCount > 0 && (
@@ -365,13 +391,11 @@ export default function QuestionCard({
           {qType === 'choice' && (
             <>提示：请选择一个答案（可按键盘 A/B/C/D 快捷选择），或点击「跳过」</>
           )}
-          {qType === 'mixed' && (
-            <>提示：此题需要选择答案并填写所有空格，或点击「跳过」</>
-          )}
+          {qType === 'mixed' && <>提示：此题需要选择答案并填写所有空格，或点击「跳过」</>}
         </p>
       )}
 
-      {/* 解题提示（复习/预习模式显示，考试模式隐藏） */}
+      {/* Solution hint shown in review and preview modes, but hidden during exams */}
       {allowHint && question.hint && (
         <div>
           <button

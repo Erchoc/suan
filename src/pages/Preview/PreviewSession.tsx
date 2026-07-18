@@ -1,24 +1,31 @@
 // src/pages/Preview/PreviewSession.tsx
-import { useParams, useNavigate } from 'react-router-dom';
+
 import { X } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import AIChatDrawer from '../../components/AIChatDrawer';
 import { usePreviewSession } from '../../hooks/usePreviewSession';
 import { usePreviewStore } from '../../stores/previewStore';
+import FAQView from './FAQView';
 import KnowledgeCardView from './KnowledgeCardView';
 import PracticeView from './PracticeView';
-import FAQView from './FAQView';
 import PreviewSummary from './PreviewSummary';
-import AIChatDrawer from '../../components/AIChatDrawer';
 
 export default function PreviewSession() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const { setPhase, skipCard, completeKp } = usePreviewStore();
 
-  const { session, currentKp, currentCard, currentQuestions, questionsLoading, isJunior, progress } =
-    usePreviewSession(sessionId ?? '');
+  const {
+    session,
+    currentKp,
+    currentCard,
+    currentQuestions,
+    questionsLoading,
+    isJunior,
+    progress,
+  } = usePreviewSession(sessionId ?? '');
 
-
-  // session 不存在（sessionId 无效）
+  // The session does not exist because the session ID is invalid.
   if (!session || !currentKp) {
     return (
       <div className="min-h-screen bg-bg flex items-center justify-center">
@@ -35,7 +42,7 @@ export default function PreviewSession() {
     );
   }
 
-  // 小结页
+  // Summary page.
   if (session.phase === 'summary') {
     return <PreviewSummary session={session} isJunior={isJunior} />;
   }
@@ -44,7 +51,7 @@ export default function PreviewSession() {
 
   return (
     <div className="min-h-screen bg-bg pt-14">
-      {/* 顶部进度条 */}
+      {/* Top progress bar. */}
       <div className="fixed top-14 left-0 right-0 z-30 bg-surface/90 backdrop-blur border-b border-border">
         <div className="flex items-center justify-between px-4 py-2 max-w-2xl mx-auto">
           <div>
@@ -64,7 +71,7 @@ export default function PreviewSession() {
             <X size={18} />
           </button>
         </div>
-        {/* 进度条 */}
+        {/* Progress bar. */}
         <div className="h-0.5 bg-border">
           <div
             className="h-full bg-accent transition-all duration-500"
@@ -73,7 +80,7 @@ export default function PreviewSession() {
         </div>
       </div>
 
-      {/* 主内容区 */}
+      {/* Main content area. */}
       <div className="max-w-2xl mx-auto px-4 pt-20 pb-24">
         {session.phase === 'card' && (
           <KnowledgeCardView
@@ -111,7 +118,7 @@ export default function PreviewSession() {
         )}
       </div>
 
-      {/* AI 对话浮窗 */}
+      {/* AI chat overlay. */}
       <AIChatDrawer
         kpId={currentKp.id}
         kpName={currentKp.name}

@@ -1,5 +1,5 @@
+import { Download, Plus, Share, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { X, Share, Plus, Download } from 'lucide-react';
 
 type Platform = 'ios' | 'android' | null;
 
@@ -33,9 +33,9 @@ export default function PWAInstallPrompt() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    // 已安装则永不显示
+    // Never show the prompt when the app is already installed.
     if (isStandalone()) return;
-    // 7 天内关闭过则不显示
+    // Keep the prompt hidden for seven days after dismissal.
     const until = localStorage.getItem(DISMISSED_KEY);
     if (until && Date.now() < Number(until)) return;
 
@@ -53,7 +53,7 @@ export default function PWAInstallPrompt() {
     }
 
     if (p === 'ios') {
-      // iOS 没有 beforeinstallprompt，直接提示
+      // iOS does not expose beforeinstallprompt, so show the instructions directly.
       setVisible(true);
     }
   }, []);
@@ -78,7 +78,7 @@ export default function PWAInstallPrompt() {
     <div
       className="fixed left-0 right-0 z-50 px-4"
       style={{
-        /* 浮在底部 tab bar 上方，避免遮挡 nav 点击区 */
+        /* Float above the bottom tab bar without covering its click targets. */
         bottom: 'calc(50px + env(safe-area-inset-bottom, 0px) + 8px)',
         paddingBottom: 0,
       }}
@@ -104,12 +104,20 @@ export default function PWAInstallPrompt() {
           {platform === 'ios' ? (
             <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
               点击底部
-              <span className="inline-flex items-center gap-0.5 mx-1 font-medium" style={{ color: 'var(--accent)' }}>
-                <Share size={11} />分享
+              <span
+                className="inline-flex items-center gap-0.5 mx-1 font-medium"
+                style={{ color: 'var(--accent)' }}
+              >
+                <Share size={11} />
+                分享
               </span>
               按钮，然后选择
-              <span className="inline-flex items-center gap-0.5 mx-1 font-medium" style={{ color: 'var(--accent)' }}>
-                <Plus size={11} />添加到主屏幕
+              <span
+                className="inline-flex items-center gap-0.5 mx-1 font-medium"
+                style={{ color: 'var(--accent)' }}
+              >
+                <Plus size={11} />
+                添加到主屏幕
               </span>
               即可像 App 一样使用
             </p>

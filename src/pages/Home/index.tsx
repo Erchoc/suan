@@ -1,7 +1,7 @@
-import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { GitFork, FlaskConical, ChevronRight, Star, Brain, TrendingUp } from 'lucide-react';
-import { kpMap, graphData } from '../../data/kpIndex';
+import { Brain, ChevronRight, FlaskConical, GitFork, Star, TrendingUp } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { graphData, kpMap } from '../../data/kpIndex';
 
 const features = [
   {
@@ -24,11 +24,14 @@ const features = [
 export default function Home() {
   return (
     <div className="min-h-screen pt-14 flex flex-col relative">
-      {/* 顶部暖色渐变氛围层 + 微动效光斑 */}
-      <div className="absolute inset-x-0 top-0 h-[60vh] pointer-events-none overflow-hidden" aria-hidden>
-        {/* 暖色渐变底色 */}
+      {/* Warm gradient atmosphere with subtly animated light spots. */}
+      <div
+        className="absolute inset-x-0 top-0 h-[60vh] pointer-events-none overflow-hidden"
+        aria-hidden
+      >
+        {/* Warm gradient background. */}
         <div className="absolute inset-0 home-warm-gradient" />
-        {/* 漂浮光斑 */}
+        {/* Floating light spots. */}
         <div className="home-orb home-orb-1" />
         <div className="home-orb home-orb-2" />
         <div className="home-orb home-orb-3" />
@@ -47,15 +50,11 @@ export default function Home() {
             人教版 · 1-6年级 · {kpMap.size} 个知识点
           </div>
 
-          <h1 className="font-brush text-7xl sm:text-8xl text-accent mb-3 leading-tight">
-            算道
-          </h1>
-          <p className="font-serif text-lg sm:text-2xl text-text-dim mb-3">
-            小学数学智能助手
-          </p>
+          <h1 className="font-brush text-7xl sm:text-8xl text-accent mb-3 leading-tight">算道</h1>
+          <p className="font-serif text-lg sm:text-2xl text-text-dim mb-3">小学数学智能助手</p>
           <p className="text-text-dim max-w-md mx-auto mb-10 sm:mb-12 leading-relaxed text-sm sm:text-base px-2">
-            精准摸底，溯源薄弱，给每个孩子定制专属的数学提升路径。
-            基于 {kpMap.size} 个知识点构建的认知图谱，让学习不再走弯路。
+            精准摸底，溯源薄弱，给每个孩子定制专属的数学提升路径。 基于 {kpMap.size}{' '}
+            个知识点构建的认知图谱，让学习不再走弯路。
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center px-4 sm:px-0">
@@ -99,13 +98,20 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 桥头堡展示 */}
+      {/* Bridge knowledge point showcase. */}
       <section className="px-4 sm:px-6 py-12 sm:py-16 max-w-5xl mx-auto w-full">
-        <h2 className="font-serif text-xl sm:text-2xl font-semibold mb-2 text-center">小初衔接桥头堡</h2>
-        <p className="text-text-dim text-center mb-6 sm:mb-8 text-sm">四大关键节点，打通小学到初中的知识断层</p>
+        <h2 className="font-serif text-xl sm:text-2xl font-semibold mb-2 text-center">
+          小初衔接桥头堡
+        </h2>
+        <p className="text-text-dim text-center mb-6 sm:mb-8 text-sm">
+          四大关键节点，打通小学到初中的知识断层
+        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           {graphData.meta.bridgePoints.groups.map(group => (
-            <div key={group.id} className="bg-surface border border-bridge/30 rounded-xl p-4 sm:p-5">
+            <div
+              key={group.id}
+              className="bg-surface border border-bridge/30 rounded-xl p-4 sm:p-5"
+            >
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-bridge text-sm font-medium">🌉 {group.label}</span>
                 <span className="font-semibold text-sm sm:text-base">{group.name}</span>

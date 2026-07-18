@@ -17,16 +17,21 @@ interface ThemeDocument {
       backgroundColor: string;
     };
   };
+  body: {
+    style: {
+      backgroundColor: string;
+    };
+  } | null;
   querySelector(selector: string): { setAttribute(name: string, value: string): void } | null;
 }
 
-export function applyThemeAppearance(
-  theme: Theme,
-  target: ThemeDocument = document,
-): void {
+export function applyThemeAppearance(theme: Theme, target: ThemeDocument = document): void {
   const { themeColor } = THEME_APPEARANCE[theme];
   target.documentElement.setAttribute('data-theme', theme);
   target.documentElement.style.colorScheme = theme;
   target.documentElement.style.backgroundColor = themeColor;
+  if (target.body) {
+    target.body.style.backgroundColor = themeColor;
+  }
   target.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
 }

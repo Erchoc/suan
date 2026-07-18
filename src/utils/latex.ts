@@ -1,4 +1,4 @@
-/** 把 LaTeX 内部表达式转换为可读文字 */
+/** Converts a LaTeX expression into readable text. */
 function convertLatexInner(s: string): string {
   return s
     .replace(/\\times/g, '×')
@@ -13,7 +13,7 @@ function convertLatexInner(s: string): string {
     .trim();
 }
 
-/** 把文本中所有 $...$ 和 $$...$$ 转换为可读文字 */
+/** Converts every $...$ and $$...$$ expression in text into readable text. */
 export function stripLatex(text: string): string {
   if (!text) return text;
   return text

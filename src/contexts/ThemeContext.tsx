@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { ThemeContext, type Theme } from './theme';
+import { type ReactNode, useLayoutEffect, useState } from 'react';
 import { applyThemeAppearance, normalizeTheme } from '../utils/themeAppearance';
+import { type Theme, ThemeContext } from './theme';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
@@ -11,20 +11,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyThemeAppearance(theme);
     try {
       localStorage.setItem('theme', theme);
     } catch {
-      // 存储不可用时仍保持当前会话的主题与系统栏同步。
+      // Keep the in-memory theme synchronized when storage is unavailable.
     }
   }, [theme]);
 
-  const toggle = () => setTheme(t => (t === 'light' ? 'dark' : 'light'));
+  const toggle = () => {
+    const nextTheme = theme === 'light' ? 'dark' : 'light';
 
-  return (
-    <ThemeContext.Provider value={{ theme, toggle }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+    // Safari samples the page background for its top bar during the input event.
+    applyThemeAppearance(nextTheme);
+    setTheme(nextTheme);
+  };
+
+  return <ThemeContext.Provider value={{ theme, toggle }}>{children}</ThemeContext.Provider>;
 }
