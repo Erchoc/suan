@@ -144,22 +144,13 @@ function MobileStatusBar({ isPWA }: { isPWA: boolean }) {
   const { theme, toggle } = useTheme();
 
   if (isPWA) {
-    // PWA 模式：暖色渐变 + 微动效光晕，适配系统状态栏
+    // 独立 PWA 的安全区使用纯主题背景，避免系统栏与页面主题出现色差。
     return (
       <div
-        className="sm:hidden fixed top-0 left-0 right-0 z-50 overflow-hidden"
-        style={{ height: 'env(safe-area-inset-top)' }}
-      >
-        {/* 基底：暖色渐变毛玻璃 */}
-        <div
-          className="absolute inset-0 backdrop-blur-xl"
-          style={{
-            background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, var(--bg)), var(--bg) 60%, color-mix(in srgb, var(--green) 6%, var(--bg)))',
-          }}
-        />
-        {/* 微光晕动效 */}
-        <div className="pwa-top-shimmer absolute inset-0 pointer-events-none" />
-      </div>
+        className="sm:hidden fixed top-0 left-0 right-0 z-50"
+        style={{ height: 'env(safe-area-inset-top)', background: 'var(--bg)' }}
+        aria-hidden
+      />
     );
   }
 

@@ -2,7 +2,7 @@
 
 算道是一个面向小学一至六年级的智能学习平台，提供知识图谱、摸底诊断、复习与预习流程，并通过流式 AI 对话辅助孩子理解数学知识点。
 
-[![持续集成](https://github.com/Erchoc/suan/actions/workflows/ci.yml/badge.svg)](https://github.com/Erchoc/suan/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/Erchoc/suan/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/Erchoc/suan/actions/workflows/ci.yml)
 
 - 在线地址：[https://suan.longye.site](https://suan.longye.site)
 - 开源协议：[MIT](LICENSE)
@@ -18,9 +18,16 @@
 
 ![算道知识图谱桌面端](docs/screenshots/graph-desktop.png)
 
-### 首页（移动端）
+### 移动端
 
-![算道首页移动端](docs/screenshots/home-mobile.png)
+<p align="center">
+  <img src="docs/screenshots/home-mobile.png" alt="算道移动端首页" width="23%" />
+  <img src="docs/screenshots/graph-mobile.png" alt="算道移动端知识图谱" width="23%" />
+  <img src="docs/screenshots/assessment-mobile.png" alt="算道移动端摸底考试" width="23%" />
+  <img src="docs/screenshots/review-mobile.png" alt="算道移动端复习" width="23%" />
+</p>
+
+<p align="center"><sub>首页 · 知识图谱 · 摸底考试 · 复习</sub></p>
 
 ## 当前架构
 

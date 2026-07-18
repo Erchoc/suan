@@ -4,7 +4,6 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import Nav from './components/Layout/Nav';
 import Home from './pages/Home';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
-import PullToRefresh from './components/PullToRefresh';
 
 const Graph = lazy(() => import('./pages/Graph'));
 const Assessment = lazy(() => import('./pages/Assessment'));
@@ -19,11 +18,11 @@ const PreviewIndex = lazy(() => import('./pages/Preview'));
 const PreviewSession = lazy(() => import('./pages/Preview/PreviewSession'));
 const QuestionDetail = lazy(() => import('./pages/Question'));
 
-// 路由切换时把 #root 滚回顶部，保证 pull-to-refresh 的 scrollTop=0 条件可用
+// 路由切换时重置浏览器原生文档滚动位置。
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
-    document.getElementById('root')?.scrollTo({ top: 0, behavior: 'instant' });
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [pathname]);
   return null;
 }
@@ -61,7 +60,6 @@ export default function App() {
             </Routes>
           </Suspense>
         </div>
-        <PullToRefresh />
         <PWAInstallPrompt />
       </BrowserRouter>
     </ThemeProvider>
