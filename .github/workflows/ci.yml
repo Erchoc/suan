@@ -22,18 +22,21 @@ jobs:
       AI_API_KEY: ci-placeholder-not-a-secret
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: 配置 pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.12.4
 
       - name: 配置 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22.13.0
-
-      - name: 启用 Corepack
-        run: corepack enable
+          cache: pnpm
 
       - name: 安装依赖
-        run: corepack pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: 执行完整检查
         run: pnpm check
