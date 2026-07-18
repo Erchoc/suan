@@ -4,6 +4,7 @@
 
 /* ─── Light theme (default) ─── */
 :root {
+  color-scheme: light;
   --bg:       #faf8f3;
   --surface:  #ffffff;
   --surface2: #f3f0e8;
@@ -27,6 +28,7 @@
 
 /* ─── Dark theme ─── */
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg:       #0f0e17;
   --surface:  #1a1830;
   --surface2: #221f3a;
@@ -53,13 +55,7 @@
 
 html {
   background-color: var(--bg);
-  /*
-   * iOS PWA + viewport-fit: cover 关键：
-   * 不用 height: 100%（会锁死 viewport 到 safe-area 尺寸）
-   * 用 -webkit-fill-available 让 html 撑满物理屏幕
-   */
-  height: 100vh;
-  height: -webkit-fill-available;
+  min-height: 100%;
 }
 
 body {
@@ -70,48 +66,20 @@ body {
   font-family: 'Noto Sans SC', sans-serif;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.2s, color 0.2s;
-  overflow: hidden;
   width: 100%;
-  /*
-   * 必须保留：-webkit-fill-available 让 body 撑满 iOS 物理屏幕，
-   * 避免 viewport-fit:cover 下底部 Home Indicator 区域出现空白。
-   */
-  height: 100vh;
-  height: -webkit-fill-available;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 #root {
-  /*
-   * 不用 position:fixed：iOS Safari 中，position:fixed + overflow:auto 的父元素
-   * 会把子元素的 fixed; bottom:0 的 containing block 变成该父元素，
-   * 导致 BottomTabBar 无法贴到屏幕物理底部，出现空白。
-   *
-   * 改回 height:100%（继承 body 的 -webkit-fill-available），
-   * 用 touch-action:pan-y 解决 iPadOS 的 overflow:hidden+子元素滚动问题。
-   */
-  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   width: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-  touch-action: pan-y;
-  overscroll-behavior-y: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-#root::-webkit-scrollbar {
-  display: none;
 }
 
-/* 全局隐藏所有滚动条 */
-::-webkit-scrollbar {
-  display: none;
-}
-* {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-/* 保留工具类（用于需要显式声明的场景） */
+/* 仅由显式工具类隐藏滚动条；桌面端保留原生滚动反馈与可发现性。 */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -236,34 +204,6 @@ body {
     color-mix(in srgb, var(--accent) 6%, var(--bg)) 0%,
     var(--bg) 60%
   );
-}
-
-/* ─── PWA 顶部状态栏微光晕 ─── */
-.pwa-top-shimmer {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--accent) 6%, transparent) 30%,
-    color-mix(in srgb, var(--green) 5%, transparent) 60%,
-    transparent 100%
-  );
-  background-size: 300% 100%;
-  animation: pwa-shimmer 10s ease-in-out infinite;
-}
-[data-theme="dark"] .pwa-top-shimmer {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--accent) 4%, transparent) 30%,
-    color-mix(in srgb, var(--green) 3%, transparent) 60%,
-    transparent 100%
-  );
-  background-size: 300% 100%;
-}
-
-@keyframes pwa-shimmer {
-  0%, 100% { background-position: 100% 0; opacity: 0.5; }
-  50%      { background-position: 0% 0; opacity: 1; }
 }
 
 /* ReactFlow 节点样式覆盖 */

@@ -6,10 +6,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="算道" />
-    <meta name="theme-color" content="#0f0e17" />
+    <meta id="theme-color" name="theme-color" content="#faf8f3" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="description" content="小学数学知识图谱与智能诊断平台" />
+    <script>
+      // 在浏览器绘制首帧前同步主题，避免 iOS Safari 先采用错误的系统栏颜色。
+      (function() {
+        var theme = 'light';
+        try {
+          theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        } catch (_) {
+          // 隐私模式或存储不可用时安全回退到默认亮色。
+        }
+        var color = theme === 'dark' ? '#0f0e17' : '#faf8f3';
+        var root = document.documentElement;
+        root.setAttribute('data-theme', theme);
+        root.style.colorScheme = theme;
+        root.style.backgroundColor = color;
+        document.getElementById('theme-color').setAttribute('content', color);
+      })();
+    </script>
     <!-- Icons -->
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" href="/favicon.svg" sizes="any" type="image/svg+xml" />
@@ -23,16 +41,6 @@
     />
   </head>
   <body>
-    <script>
-      // 在 React 加载前同步设置主题，避免 iOS Safari 状态栏颜色闪烁
-      (function() {
-        var theme = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-theme', theme);
-        var color = theme === 'dark' ? '#0f0e17' : '#faf8f3';
-        var meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute('content', color);
-      })();
-    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
