@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="算道" />
     <meta id="theme-color" name="theme-color" content="#faf8f3" />
-    <meta name="color-scheme" content="light dark" />
+    <meta id="color-scheme" name="color-scheme" content="light" />
     <meta name="description" content="小学数学知识图谱与智能诊断平台" />
     <script>
       // Synchronize the theme before the first paint so Safari samples the correct color.
@@ -26,6 +26,7 @@
         root.style.colorScheme = theme;
         root.style.backgroundColor = color;
         document.getElementById('theme-color').setAttribute('content', color);
+        document.getElementById('color-scheme').setAttribute('content', theme);
       })();
     </script>
     <!-- Icons -->
