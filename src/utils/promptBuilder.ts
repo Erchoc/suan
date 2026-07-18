@@ -11,9 +11,8 @@ export interface PromptOptions {
 
 function getKPHeader(kp: KPWithContext): string {
   const deps = getFullDepsChain(kp.id);
-  const depsDesc = deps.length > 0
-    ? `\n前置知识点：${deps.map(d => `${d.name}(${d.id})`).join('、')}`
-    : '';
+  const depsDesc =
+    deps.length > 0 ? `\n前置知识点：${deps.map(d => `${d.name}(${d.id})`).join('、')}` : '';
 
   return `知识点信息：
 - ID: ${kp.id}
@@ -24,7 +23,7 @@ function getKPHeader(kp: KPWithContext): string {
 }
 
 /**
- * 构造填空题 Prompt（兼容存量逻辑）
+ * Builds a fill-in-the-blank question prompt compatible with existing content.
  */
 export function buildQuestionPrompt(kp: KPWithContext, opts: PromptOptions = {}): string {
   const { count = 10, difficulties = ['easy', 'medium', 'hard'] } = opts;
@@ -63,7 +62,7 @@ ${getKPHeader(kp)}
 }
 
 /**
- * 构造选择题 Prompt
+ * Builds a multiple-choice question prompt.
  */
 export function buildChoiceQuestionPrompt(kp: KPWithContext, opts: PromptOptions = {}): string {
   const { count = 10, difficulties = ['easy', 'medium', 'hard'] } = opts;
@@ -110,7 +109,7 @@ ${getKPHeader(kp)}
 }
 
 /**
- * 构造混合题 Prompt（先选择再填空）
+ * Builds a mixed question prompt with a choice followed by a blank.
  */
 export function buildMixedQuestionPrompt(kp: KPWithContext, opts: PromptOptions = {}): string {
   const { count = 10, difficulties = ['easy', 'medium', 'hard'] } = opts;

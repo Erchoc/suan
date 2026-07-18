@@ -1,9 +1,9 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
-import { ThemeProvider } from './contexts/ThemeContext';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Nav from './components/Layout/Nav';
-import Home from './pages/Home';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
+import { ThemeProvider } from './contexts/ThemeContext';
+import Home from './pages/Home';
 
 const Graph = lazy(() => import('./pages/Graph'));
 const Assessment = lazy(() => import('./pages/Assessment'));
@@ -18,9 +18,10 @@ const PreviewIndex = lazy(() => import('./pages/Preview'));
 const PreviewSession = lazy(() => import('./pages/Preview/PreviewSession'));
 const QuestionDetail = lazy(() => import('./pages/Question'));
 
-// 路由切换时重置浏览器原生文档滚动位置。
+// Reset the browser's native document scroll position on route changes.
 function ScrollToTop() {
   const { pathname } = useLocation();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The pathname intentionally retriggers the scroll reset.
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [pathname]);
@@ -33,14 +34,14 @@ export default function App() {
       <BrowserRouter>
         <ScrollToTop />
         <Nav />
-        {/* 移动端：内容区域底部留出 Tab Bar 高度，避免内容被遮住 */}
+        {/* Reserve space for the mobile tab bar so it does not cover page content. */}
         <div className="sm:contents mobile-content-wrap">
           <Suspense
-            fallback={(
+            fallback={
               <div className="min-h-screen bg-bg flex items-center justify-center text-text-dim">
                 正在加载…
               </div>
-            )}
+            }
           >
             <Routes>
               <Route path="/" element={<Home />} />

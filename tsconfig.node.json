@@ -15,12 +15,5 @@
     "strict": true,
     "types": ["node"]
   },
-  "include": [
-    "vite.config.ts",
-    "vitest.config.ts",
-    "eslint.config.js",
-    "tailwind.config.ts",
-    "pwa-assets.config.ts",
-    "scripts/**/*.ts"
-  ]
+  "include": ["vite.config.ts", "vitest.config.ts", "tailwind.config.ts", "scripts/**/*.ts"]
 }

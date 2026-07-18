@@ -1,6 +1,7 @@
 // src/pages/Preview/PreviewSummary.tsx
-import { useNavigate } from 'react-router-dom';
+
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { kpMap } from '../../data/kpIndex';
 import type { PreviewSession } from '../../types';
 
@@ -23,7 +24,7 @@ export default function PreviewSummary({ session, isJunior }: PreviewSummaryProp
         animate={{ opacity: 1, y: 0 }}
         className="max-w-md w-full space-y-6"
       >
-        {/* 庆祝动画（仅低年级） */}
+        {/* Celebration animation for younger grades. */}
         {isJunior && (
           <motion.div
             initial={{ scale: 0 }}
@@ -40,7 +41,7 @@ export default function PreviewSummary({ session, isJunior }: PreviewSummaryProp
             {isJunior ? '🌟 预习完成！' : '预习完成'}
           </h2>
 
-          {/* 统计摘要 */}
+          {/* Statistics summary. */}
           <div className="grid grid-cols-3 gap-3 text-center">
             <div className="bg-surface2 rounded-xl p-3">
               <p className="text-2xl font-bold text-accent">{session.kpIds.length}</p>
@@ -51,12 +52,14 @@ export default function PreviewSummary({ session, isJunior }: PreviewSummaryProp
               <p className="text-xs text-text-dim mt-1">练习题</p>
             </div>
             <div className="bg-surface2 rounded-xl p-3">
-              <p className="text-2xl font-bold text-green">{total > 0 ? `${correct}/${total}` : '—'}</p>
+              <p className="text-2xl font-bold text-green">
+                {total > 0 ? `${correct}/${total}` : '—'}
+              </p>
               <p className="text-xs text-text-dim mt-1">答对{pct !== null ? `（${pct}%）` : ''}</p>
             </div>
           </div>
 
-          {/* 知识点列表 */}
+          {/* Knowledge point list. */}
           <div className="space-y-1">
             {session.kpIds.map(kpId => {
               const kp = kpMap.get(kpId);
@@ -71,7 +74,7 @@ export default function PreviewSummary({ session, isJunior }: PreviewSummaryProp
           </div>
         </div>
 
-        {/* 操作按钮 */}
+        {/* Action buttons. */}
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => navigate('/preview')}

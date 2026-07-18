@@ -1,10 +1,10 @@
-name: 持续集成
+name: Continuous Integration
 
 on:
   push:
   pull_request:
 
-# 持续集成仅需要读取仓库内容。
+# Continuous integration only needs read access to repository contents.
 permissions:
   contents: read
 
@@ -14,29 +14,32 @@ concurrency:
 
 jobs:
   check:
-    name: 代码质量检查
+    name: Code Quality Checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # 构建与测试只使用公开占位值，不读取或输出生产密钥。
-      AI_API_KEY: ci-placeholder-not-a-secret
+      # Builds and tests use a public placeholder and never read or print production secrets.
+      BASE_URL: https://api.deepseek.com
+      API_KEY: ci-placeholder-not-a-secret
+      MODEL: deepseek-v4-flash
+      AI_PROTOCOL: openai-chat
     steps:
-      - name: 检出代码
+      - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: 配置 pnpm
+      - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 10.12.4
 
-      - name: 配置 Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 22.13.0
           cache: pnpm
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: 执行完整检查
-        run: pnpm check
+      - name: Run all checks
+        run: pnpm run ci

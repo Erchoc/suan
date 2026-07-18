@@ -1,12 +1,12 @@
+import { AnimatePresence, motion } from 'framer-motion';
+import { AlertCircle, CheckCircle2, Clock, Keyboard, Menu, Play, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, CheckCircle2, AlertCircle, Play, Menu, X, Keyboard } from 'lucide-react';
-import QuestionCard from '../../components/QuestionCard/QuestionCard';
+import { useNavigate, useParams } from 'react-router-dom';
 import CustomKeyboard from '../../components/CustomKeyboard/CustomKeyboard';
-import { useExamStore } from '../../stores/examStore';
+import QuestionCard from '../../components/QuestionCard/QuestionCard';
 import Button from '../../components/ui/Button';
-import type { QuestionType, DifficultyLevel } from '../../types';
+import { useExamStore } from '../../stores/examStore';
+import type { DifficultyLevel, QuestionType } from '../../types';
 
 function formatTime(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -19,18 +19,15 @@ function formatTime(ms: number) {
 type Status = 'unanswered' | 'answered' | 'skipped' | 'current';
 
 function QuestionStatus({ status, num }: { status: Status; num: number }) {
-  const base = 'w-8 h-8 rounded-lg text-xs flex items-center justify-center font-mono transition-all border-2';
+  const base =
+    'w-8 h-8 rounded-lg text-xs flex items-center justify-center font-mono transition-all border-2';
   const classes = {
-    current:    `${base} bg-accent text-white font-bold border-accent ring-2 ring-accent/30`,
-    answered:   `${base} bg-green-500/30 text-green-600 border-green-500`,
-    skipped:    `${base} bg-amber-400/30 text-amber-700 border-amber-500`,
+    current: `${base} bg-accent text-white font-bold border-accent ring-2 ring-accent/30`,
+    answered: `${base} bg-green-500/30 text-green-600 border-green-500`,
+    skipped: `${base} bg-amber-400/30 text-amber-700 border-amber-500`,
     unanswered: `${base} bg-surface2 text-text-dim border-border`,
   };
-  return (
-    <div className={classes[status]}>
-      {num}
-    </div>
-  );
+  return <div className={classes[status]}>{num}</div>;
 }
 
 const difficultyLabelMap: Record<DifficultyLevel, string> = {
@@ -45,7 +42,9 @@ function isQuestionAnswered(
   answers: string[],
   choiceAnswer: string | undefined,
 ): boolean {
-  const hasBlanks = blankCount > 0 && answers.length >= blankCount &&
+  const hasBlanks =
+    blankCount > 0 &&
+    answers.length >= blankCount &&
     answers.slice(0, blankCount).every(a => a?.trim());
   const hasChoice = !!choiceAnswer;
 
@@ -64,7 +63,16 @@ function isQuestionAnswered(
 export default function ExamPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { getSession, setAnswer, setChoiceAnswer, setIssueReport, toggleBookmark, submitSession, startSession, saveQuestionIndex } = useExamStore();
+  const {
+    getSession,
+    setAnswer,
+    setChoiceAnswer,
+    setIssueReport,
+    toggleBookmark,
+    submitSession,
+    startSession,
+    saveQuestionIndex,
+  } = useExamStore();
   const [currentIndex, setCurrentIndex] = useState(() => {
     const s = sessionId ? getSession(sessionId) : null;
     return s?.lastQuestionIndex ?? 0;
@@ -74,9 +82,9 @@ export default function ExamPage() {
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // ─── 自定义键盘状态（移动端全年级） ──────────────────────────────────────
+  // Custom keyboard state for every grade on mobile.
   const [isNarrowScreen, setIsNarrowScreen] = useState(() => window.innerWidth <= 1024);
-  // focusedBlankIndex: null = 键盘关闭，数字 = 当前聚焦的空
+  // focusedBlankIndex is null when closed, otherwise it identifies the focused blank.
   const [focusedBlankIndex, setFocusedBlankIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -100,21 +108,26 @@ export default function ExamPage() {
     return () => clearInterval(timer);
   }, [session?.startedAt]);
 
-  // 切题时：关闭移动端 sidebar + 持久化当前题目序号（断点续做）
+  // Close the mobile sidebar and persist progress when changing questions.
   useEffect(() => {
     setSidebarOpen(false);
     if (sessionId) saveQuestionIndex(sessionId, currentIndex);
   }, [currentIndex, sessionId, saveQuestionIndex]);
 
-  // 自定义键盘：移动端全年级均启用
+  // Enable the custom keyboard for every grade on mobile.
   const gradeNum = session?.config.gradeNum ?? 0;
   const useCustomKeyboard = isNarrowScreen && gradeNum >= 1;
 
-  // 切题时自动聚焦第一个空
+  // Focus the first blank automatically after changing questions.
   const currentQId = session?.questions[currentIndex]?.id ?? '';
-  const currentQType: QuestionType = (session?.questions[currentIndex]?.type ?? 'fill_blank') as QuestionType;
+  const currentQType: QuestionType = (session?.questions[currentIndex]?.type ??
+    'fill_blank') as QuestionType;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The question ID intentionally resets focus between same-type questions.
   useEffect(() => {
-    if (!useCustomKeyboard) { setFocusedBlankIndex(null); return; }
+    if (!useCustomKeyboard) {
+      setFocusedBlankIndex(null);
+      return;
+    }
     if (currentQType === 'fill_blank' || currentQType === 'mixed') {
       setFocusedBlankIndex(0);
     } else {
@@ -143,7 +156,7 @@ export default function ExamPage() {
     );
   }
 
-  // ─── 闸门页 ──────────────────────────────────────────────────────────────
+  // Start gate.
   if (!session.startedAt) {
     const cfg = session.config;
     return (
@@ -197,7 +210,7 @@ export default function ExamPage() {
     );
   }
 
-  // ─── 答题界面 ─────────────────────────────────────────────────────────────
+  // Exam interface.
   const questions = session.questions;
   const currentQ = questions[currentIndex];
   const qType: QuestionType = currentQ.type || 'fill_blank';
@@ -209,7 +222,7 @@ export default function ExamPage() {
   const blankCount = (currentQ.question.match(/____/g) || []).length;
   const hasAnsweredAll = isQuestionAnswered(qType, blankCount, answers, choiceAnswer);
 
-  // ─── 自定义键盘 handlers（普通函数，不能用 useCallback，此处在 early return 之后）────
+  // Custom keyboard handlers remain plain functions because they follow the early return.
   const handleKbInput = (char: string) => {
     if (focusedBlankIndex === null) return;
     const current = session.answers[currentQ.id]?.[focusedBlankIndex] ?? '';
@@ -300,12 +313,14 @@ export default function ExamPage() {
     navigate(`/report/${sessionId}`);
   };
 
-  // ─── sidebar 内容（桌面端和移动端共用） ────────────────────────────────────
+  // Sidebar content shared by desktop and mobile.
   const sidebarContent = (
     <>
       <div className="p-4 border-b border-border">
         {showTimer ? (
-          <div className={`flex items-center gap-2 text-sm mb-3 ${remaining < 600000 ? 'text-red-500' : 'text-text-dim'}`}>
+          <div
+            className={`flex items-center gap-2 text-sm mb-3 ${remaining < 600000 ? 'text-red-500' : 'text-text-dim'}`}
+          >
             <Clock size={14} />
             <span className="font-medium">剩余时间：{formatTime(remaining)}</span>
           </div>
@@ -322,7 +337,9 @@ export default function ExamPage() {
           />
         </div>
         <div className="flex justify-between text-xs text-text-dim mt-2">
-          <span>已答 {answeredCount}/{questions.length}</span>
+          <span>
+            已答 {answeredCount}/{questions.length}
+          </span>
           <span>收藏 {bookmarkedCount}</span>
         </div>
       </div>
@@ -330,7 +347,7 @@ export default function ExamPage() {
       <div className="flex-1 overflow-y-auto p-3">
         <div className="grid grid-cols-5 gap-2">
           {questions.map((q, i) => (
-            <button key={q.id} onClick={() => setCurrentIndex(i)} title={`第${i+1}题`}>
+            <button key={q.id} onClick={() => setCurrentIndex(i)} title={`第${i + 1}题`}>
               <QuestionStatus status={getStatus(i)} num={i + 1} />
             </button>
           ))}
@@ -338,7 +355,12 @@ export default function ExamPage() {
       </div>
 
       <div className="p-3 border-t border-border">
-        <Button variant="danger" size="sm" className="w-full" onClick={() => setShowSubmitConfirm(true)}>
+        <Button
+          variant="danger"
+          size="sm"
+          className="w-full"
+          onClick={() => setShowSubmitConfirm(true)}
+        >
           提交试卷
         </Button>
       </div>
@@ -346,13 +368,13 @@ export default function ExamPage() {
   );
 
   return (
-    <div className="h-screen pt-14 flex overflow-hidden bg-bg">
-      {/* 桌面端侧边栏 */}
+    <div className="h-[calc(100dvh_-_var(--tab-bar-h))] pt-14 flex overflow-hidden bg-bg">
+      {/* Desktop sidebar. */}
       <aside className="hidden md:flex w-72 flex-shrink-0 bg-surface border-r border-border flex-col">
         {sidebarContent}
       </aside>
 
-      {/* 移动端遮罩 + 侧边栏 */}
+      {/* Mobile backdrop and sidebar. */}
       <AnimatePresence>
         {sidebarOpen && (
           <>
@@ -374,7 +396,10 @@ export default function ExamPage() {
             >
               <div className="flex items-center justify-between px-4 pt-3 pb-0">
                 <span className="text-sm font-medium">题目列表</span>
-                <button onClick={() => setSidebarOpen(false)} className="p-1 text-text-dim hover:text-text">
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  className="p-1 text-text-dim hover:text-text"
+                >
                   <X size={18} />
                 </button>
               </div>
@@ -384,11 +409,17 @@ export default function ExamPage() {
         )}
       </AnimatePresence>
 
-      {/* 主答题区 */}
+      {/* Main exam area. */}
       <main className="flex-1 overflow-y-auto bg-bg">
-        {/* 移动端顶部栏：菜单按钮 + 迷你进度 */}
+        {/* Mobile header with menu and compact progress. */}
         <div className="flex md:hidden items-center gap-3 px-4 py-2 border-b border-border bg-surface sticky top-0 z-[45]">
-          <button onClick={() => { setFocusedBlankIndex(null); setSidebarOpen(true); }} className="p-1.5 rounded-lg bg-surface2 text-text-dim hover:text-text">
+          <button
+            onClick={() => {
+              setFocusedBlankIndex(null);
+              setSidebarOpen(true);
+            }}
+            className="p-1.5 rounded-lg bg-surface2 text-text-dim hover:text-text"
+          >
             <Menu size={18} />
           </button>
           <div className="flex-1">
@@ -403,7 +434,9 @@ export default function ExamPage() {
             {answeredCount}/{questions.length}
           </span>
           {showTimer && (
-            <span className={`text-xs whitespace-nowrap ${remaining < 600000 ? 'text-red-500' : 'text-text-dim'}`}>
+            <span
+              className={`text-xs whitespace-nowrap ${remaining < 600000 ? 'text-red-500' : 'text-text-dim'}`}
+            >
               {formatTime(remaining)}
             </span>
           )}
@@ -434,23 +467,30 @@ export default function ExamPage() {
               onPrev={handlePrev}
               totalQuestions={questions.length}
               allowHint={false}
-              customKeyboard={useCustomKeyboard ? {
-                enabled: true,
-                focusedBlankIndex,
-                onBlankFocus: setFocusedBlankIndex,
-              } : undefined}
+              customKeyboard={
+                useCustomKeyboard
+                  ? {
+                      enabled: true,
+                      focusedBlankIndex,
+                      onBlankFocus: setFocusedBlankIndex,
+                    }
+                  : undefined
+              }
             />
           </motion.div>
         </div>
       </main>
 
-      {/* 自定义键盘（低年级移动端） */}
+      {/* Custom keyboard on mobile. */}
       {useCustomKeyboard && (
         <>
-          {/* FAB：右下角悬浮键盘唤起按钮，键盘收起时显示 */}
+          {/* Floating keyboard button shown while the keyboard is closed. */}
           {focusedBlankIndex === null && blankCount > 0 && (
             <button
-              onPointerDown={e => { e.preventDefault(); setFocusedBlankIndex(0); }}
+              onPointerDown={e => {
+                e.preventDefault();
+                setFocusedBlankIndex(0);
+              }}
               className="
                 fixed right-4 z-40
                 w-12 h-12 rounded-full shadow-lg
@@ -481,7 +521,7 @@ export default function ExamPage() {
         </>
       )}
 
-      {/* 提交确认弹窗 */}
+      {/* Submission confirmation dialog. */}
       {showSubmitConfirm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 sm:p-6">
           <motion.div
@@ -494,13 +534,17 @@ export default function ExamPage() {
               <h3 className="font-semibold text-lg">确认提交？</h3>
             </div>
             <p className="text-text-dim text-sm mb-2">
-              已完成 <strong className="text-text">{answeredCount}</strong> 道题，
-              未答 <strong className="text-text">{questions.length - answeredCount}</strong> 道。
+              已完成 <strong className="text-text">{answeredCount}</strong> 道题， 未答{' '}
+              <strong className="text-text">{questions.length - answeredCount}</strong> 道。
             </p>
             <p className="text-text-dim text-sm mb-6">提交后将生成诊断报告。</p>
             <div className="flex gap-3">
-              <Button variant="primary" onClick={handleSubmit}>确认提交</Button>
-              <Button variant="secondary" onClick={() => setShowSubmitConfirm(false)}>继续作答</Button>
+              <Button variant="primary" onClick={handleSubmit}>
+                确认提交
+              </Button>
+              <Button variant="secondary" onClick={() => setShowSubmitConfirm(false)}>
+                继续作答
+              </Button>
             </div>
           </motion.div>
         </div>

@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Upload, FileImage, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { FileImage, Loader2, Upload } from 'lucide-react';
+import { useState } from 'react';
 import Button from '../../components/ui/Button';
 
 export default function UploadConfig() {
@@ -23,7 +23,7 @@ export default function UploadConfig() {
 
   const handleAnalyze = () => {
     setAnalyzing(true);
-    // Mock 进度动画
+    // Mock progress animation.
     let p = 0;
     const timer = setInterval(() => {
       p += Math.random() * 15;
@@ -45,35 +45,42 @@ export default function UploadConfig() {
           ⚠️ 当前为占位 UI，OCR 分析能力尚未接入
         </div>
 
-        {/* 上传区域 */}
-        <div
-          onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        {/* Upload area. */}
+        <input
+          id="file-input"
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={handleFileInput}
+        />
+        <button
+          type="button"
+          onDragOver={e => {
+            e.preventDefault();
+            setDragging(true);
+          }}
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
           className={`
-            border-2 border-dashed rounded-2xl p-12 text-center transition-colors cursor-pointer
+            w-full border-2 border-dashed rounded-2xl p-12 text-center transition-colors cursor-pointer
             ${dragging ? 'border-accent bg-accent/5' : 'border-border hover:border-border/80'}
           `}
           onClick={() => document.getElementById('file-input')?.click()}
         >
-          <input
-            id="file-input"
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleFileInput}
-          />
           <Upload size={40} className="mx-auto mb-4 text-text-dim" />
           <p className="text-text-dim">拖拽试卷图片到此处，或点击上传</p>
           <p className="text-xs text-text-dim mt-1">支持 JPG、PNG，可多张</p>
-        </div>
+        </button>
 
-        {/* 已上传文件列表 */}
+        {/* Uploaded file list. */}
         {files.length > 0 && (
           <div className="mt-4 flex flex-col gap-2">
             {files.map((f, i) => (
-              <div key={i} className="flex items-center gap-3 bg-surface border border-border rounded-xl px-4 py-3">
+              <div
+                key={i}
+                className="flex items-center gap-3 bg-surface border border-border rounded-xl px-4 py-3"
+              >
                 <FileImage size={18} className="text-text-dim" />
                 <span className="text-sm flex-1">{f.name}</span>
                 <span className="text-xs text-text-dim">{(f.size / 1024).toFixed(0)} KB</span>
@@ -88,7 +95,7 @@ export default function UploadConfig() {
           </div>
         )}
 
-        {/* 分析按钮 */}
+        {/* Analyze button. */}
         {files.length > 0 && !analyzing && (
           <div className="mt-6">
             <Button variant="primary" size="lg" onClick={handleAnalyze}>
@@ -97,7 +104,7 @@ export default function UploadConfig() {
           </div>
         )}
 
-        {/* 分析进度 */}
+        {/* Analysis progress. */}
         {analyzing && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}

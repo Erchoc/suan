@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      glob: '*.{js,jsx,ts,tsx,json,jsonc,css,html}'
+      run: pnpm exec biome check {staged_files}
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: typecheck
+      run: pnpm typecheck
+    - name: unit-tests
+      run: pnpm test

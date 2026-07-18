@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Question, ReviewSession, ReviewSource, ReviewResult } from '../types';
+import type { Question, ReviewResult, ReviewSession, ReviewSource } from '../types';
 import { judgeQuestion } from '../utils/judgeAnswer';
 
 const STORAGE_KEY = 'suandao-review';
@@ -12,7 +12,7 @@ interface ReviewStore {
   createSession(sources: ReviewSource[], questions: Question[]): string;
   setAnswer(sessionId: string, questionId: string, answers: string[]): void;
   setChoiceAnswer(sessionId: string, questionId: string, label: string): void;
-  /** 提交单题，返回判题结果 */
+  /** Submits one question and returns its result. */
   submitAnswer(sessionId: string, questionId: string): ReviewResult;
   toggleBookmark(sessionId: string, questionId: string): void;
   setIssueReport(sessionId: string, questionId: string, reason: string): void;
@@ -40,7 +40,7 @@ export const useReviewStore = create<ReviewStore>()(
         };
         set(state => {
           const sessions = { ...state.sessions, [sessionId]: session };
-          // 超过上限时删除最旧的
+          // Remove the oldest sessions when the limit is exceeded.
           const ids = Object.keys(sessions).sort(
             (a, b) => (sessions[a].startedAt ?? 0) - (sessions[b].startedAt ?? 0),
           );
@@ -80,7 +80,7 @@ export const useReviewStore = create<ReviewStore>()(
         }),
 
       submitAnswer: (sessionId, questionId) => {
-        // 在 set 回调内读取 state，避免 closure 捕获旧快照
+        // Read state inside the set callback to avoid a stale closure snapshot.
         let result: ReviewResult = 'wrong';
         set(state => {
           const session = state.sessions[sessionId];
@@ -130,7 +130,7 @@ export const useReviewStore = create<ReviewStore>()(
           };
         }),
 
-      completeSession: (sessionId) =>
+      completeSession: sessionId =>
         set(state => {
           const session = state.sessions[sessionId];
           if (!session) return state;
@@ -142,7 +142,7 @@ export const useReviewStore = create<ReviewStore>()(
           };
         }),
 
-      getSession: (sessionId) => get().sessions[sessionId] ?? null,
+      getSession: sessionId => get().sessions[sessionId] ?? null,
     }),
     { name: STORAGE_KEY },
   ),

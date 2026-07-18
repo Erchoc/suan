@@ -1,8 +1,8 @@
-import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { RotateCcw } from 'lucide-react';
-import { useReviewStore } from '../../stores/reviewStore';
+import { useNavigate, useParams } from 'react-router-dom';
 import Button from '../../components/ui/Button';
+import { useReviewStore } from '../../stores/reviewStore';
 
 export default function ReviewSummary() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -10,18 +10,28 @@ export default function ReviewSummary() {
   const { getSession } = useReviewStore();
 
   const session = sessionId ? getSession(sessionId) : null;
-  if (!session) { navigate('/review'); return null; }
+  if (!session) {
+    navigate('/review');
+    return null;
+  }
 
-  const total    = session.questions.length;
-  const correct  = Object.values(session.results).filter(r => r === 'correct').length;
-  const wrong    = Object.values(session.results).filter(r => r === 'wrong').length;
+  const total = session.questions.length;
+  const correct = Object.values(session.results).filter(r => r === 'correct').length;
+  const wrong = Object.values(session.results).filter(r => r === 'wrong').length;
   const duration = session.completedAt
     ? Math.floor((session.completedAt - session.startedAt) / 1000 / 60)
     : 0;
 
   return (
-    <div className="min-h-screen pt-14 flex items-center justify-center px-4" style={{ background: 'var(--bg)' }}>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-md w-full">
+    <div
+      className="min-h-screen pt-14 flex items-center justify-center px-4"
+      style={{ background: 'var(--bg)' }}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-md w-full"
+      >
         <div className="text-center mb-8">
           <p className="text-5xl mb-3">&#127881;</p>
           <h1 className="font-brush text-3xl text-accent mb-2">复习完成</h1>
@@ -45,13 +55,20 @@ export default function ReviewSummary() {
           </div>
           {total > 0 && (
             <div className="mt-4 h-2 bg-surface2 rounded-full overflow-hidden">
-              <div className="h-full bg-green-500 rounded-full" style={{ width: `${(correct / total) * 100}%` }} />
+              <div
+                className="h-full bg-green-500 rounded-full"
+                style={{ width: `${(correct / total) * 100}%` }}
+              />
             </div>
           )}
         </div>
 
         <div className="flex flex-col gap-3">
-          <Button variant="secondary" onClick={() => navigate('/review')} className="w-full flex items-center justify-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => navigate('/review')}
+            className="w-full flex items-center justify-center gap-2"
+          >
             <RotateCcw size={15} /> 继续复习其他内容
           </Button>
           <Button variant="primary" onClick={() => navigate('/assessment')} className="w-full">

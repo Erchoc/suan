@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string;
-  isStreaming?: boolean;  // 是否正在流式输出（显示光标）
+  isStreaming?: boolean; // Shows the streaming cursor while content is arriving.
 }
 
 export default function ChatMessage({ role, content, isStreaming }: ChatMessageProps) {
@@ -23,7 +23,9 @@ export default function ChatMessage({ role, content, isStreaming }: ChatMessageP
         ) : (
           <div className="prose prose-sm prose-invert max-w-none">
             <ReactMarkdown>{content}</ReactMarkdown>
-            {isStreaming && <span className="inline-block w-1 h-4 bg-text-dim animate-pulse ml-0.5" />}
+            {isStreaming && (
+              <span className="inline-block w-1 h-4 bg-text-dim animate-pulse ml-0.5" />
+            )}
           </div>
         )}
       </div>

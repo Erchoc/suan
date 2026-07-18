@@ -1,16 +1,9 @@
+import { Background, type Edge, MarkerType, type Node, Position, ReactFlow } from '@xyflow/react';
 import { useMemo } from 'react';
-import {
-  ReactFlow,
-  Background,
-  Position,
-  MarkerType,
-  type Node,
-  type Edge,
-} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { kpMap, bridgeMap } from '../../data/kpIndex';
-import type { KPWithContext } from '../../data/kpIndex';
 import { useTheme } from '../../contexts/theme';
+import type { KPWithContext } from '../../data/kpIndex';
+import { bridgeMap, kpMap } from '../../data/kpIndex';
 
 interface LocalGraphProps {
   centerKP: KPWithContext;
@@ -24,16 +17,14 @@ export default function LocalGraph({ centerKP, onNodeClick }: LocalGraphProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
 
-  const bgDotColor   = isDark ? '#2e2b4a' : '#d8d3c8';
-  const edgeStroke   = isDark ? 'rgba(167,169,190,0.5)' : 'rgba(100,95,130,0.4)';
+  const bgDotColor = isDark ? '#2e2b4a' : '#d8d3c8';
+  const edgeStroke = isDark ? 'rgba(167,169,190,0.5)' : 'rgba(100,95,130,0.4)';
 
   const { nodes, edges } = useMemo(() => {
-    // 直接前置（deps）
-    const deps = centerKP.deps
-      .map(id => kpMap.get(id))
-      .filter(Boolean) as KPWithContext[];
+    // Direct prerequisites from deps.
+    const deps = centerKP.deps.map(id => kpMap.get(id)).filter(Boolean) as KPWithContext[];
 
-    // 直接后继
+    // Direct dependents.
     const dependents: KPWithContext[] = [];
     kpMap.forEach(kp => {
       if (kp.deps.includes(centerKP.id)) dependents.push(kp);
@@ -47,9 +38,9 @@ export default function LocalGraph({ centerKP, onNodeClick }: LocalGraphProps) {
       targetPosition: Position.Left,
     };
 
-    // deps 在左列
+    // Place prerequisites in the left column.
     const depsCount = deps.length;
-    const depYStart = -(depsCount - 1) * 60 / 2;
+    const depYStart = (-(depsCount - 1) * 60) / 2;
     deps.forEach((d, i) => {
       const isBridge = bridgeMap.has(d.id);
       nodes.push({
@@ -79,7 +70,7 @@ export default function LocalGraph({ centerKP, onNodeClick }: LocalGraphProps) {
       });
     });
 
-    // 中心节点
+    // Center node.
     const isCenterBridge = bridgeMap.has(centerKP.id);
     nodes.push({
       id: centerKP.id,
@@ -88,9 +79,7 @@ export default function LocalGraph({ centerKP, onNodeClick }: LocalGraphProps) {
       ...nodeBase,
       style: {
         background: `${centerKP.gradeColor}28`,
-        border: isCenterBridge
-          ? '2px solid var(--bridge)'
-          : `2px solid ${centerKP.gradeColor}`,
+        border: isCenterBridge ? '2px solid var(--bridge)' : `2px solid ${centerKP.gradeColor}`,
         borderRadius: 10,
         color: 'var(--text)',
         fontSize: 12,
@@ -104,9 +93,9 @@ export default function LocalGraph({ centerKP, onNodeClick }: LocalGraphProps) {
       },
     });
 
-    // 后继节点在右列
+    // Place dependents in the right column.
     const depCount = dependents.length;
-    const rightYStart = -(depCount - 1) * 60 / 2;
+    const rightYStart = (-(depCount - 1) * 60) / 2;
     dependents.forEach((d, i) => {
       const isBridge = bridgeMap.has(d.id);
       nodes.push({
@@ -137,8 +126,7 @@ export default function LocalGraph({ centerKP, onNodeClick }: LocalGraphProps) {
     });
 
     return { nodes, edges };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centerKP, isDark]);
+  }, [centerKP, edgeStroke]);
 
   return (
     <ReactFlow

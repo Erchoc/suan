@@ -1,10 +1,11 @@
 // src/pages/Preview/FAQView.tsx
+
+import { AnimatePresence, motion } from 'framer-motion';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ChevronDown, ChevronUp } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import type { KnowledgeCard } from '../../types';
 import { usePreviewStore } from '../../stores/previewStore';
+import type { KnowledgeCard } from '../../types';
 
 interface FAQViewProps {
   sessionId: string;
@@ -18,7 +19,7 @@ export default function FAQView({ sessionId, kpId, card, onContinue }: FAQViewPr
   const faqSelectedIds = usePreviewStore(s => s.getSession(sessionId)?.faqSelectedIds[kpId] ?? []);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
-  // 无 FAQ 时直接继续
+  // Continue immediately when no FAQs are available.
   if (!card || card.faqs.length === 0) {
     return (
       <div className="text-center py-6">
@@ -51,7 +52,8 @@ export default function FAQView({ sessionId, kpId, card, onContinue }: FAQViewPr
                   className="w-full text-left px-4 py-3 flex items-center justify-between gap-2 hover:bg-surface2 transition-colors"
                 >
                   <span className={`text-sm ${wasSelected ? 'text-text-dim' : 'text-text'}`}>
-                    {wasSelected && '✓ '}{faq.question}
+                    {wasSelected && '✓ '}
+                    {faq.question}
                   </span>
                   {isOpen ? (
                     <ChevronUp size={14} className="text-text-dim flex-shrink-0" />

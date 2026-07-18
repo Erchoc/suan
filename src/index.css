@@ -5,19 +5,19 @@
 /* ─── Light theme (default) ─── */
 :root {
   color-scheme: light;
-  --bg:       #faf8f3;
-  --surface:  #ffffff;
+  --bg: #faf8f3;
+  --surface: #ffffff;
   --surface2: #f3f0e8;
-  --border:   #e4dfd4;
-  --text:     #1c1a2e;
+  --border: #e4dfd4;
+  --text: #1c1a2e;
   --text-dim: #7a7892;
-  --accent:   #d97706;
-  --accent2:  #dc2626;
-  --green:    #059669;
-  --blue:     #2563eb;
-  --bridge:   #0891b2;
+  --accent: #d97706;
+  --accent2: #dc2626;
+  --green: #059669;
+  --blue: #2563eb;
+  --bridge: #0891b2;
 
-  /* 年级色系 */
+  /* Grade color palette */
   --g1: #e63946;
   --g2: #d97706;
   --g3: #059669;
@@ -29,17 +29,17 @@
 /* ─── Dark theme ─── */
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg:       #0f0e17;
-  --surface:  #1a1830;
+  --bg: #0f0e17;
+  --surface: #1a1830;
   --surface2: #221f3a;
-  --border:   #2e2b4a;
-  --text:     #fffffe;
+  --border: #2e2b4a;
+  --text: #fffffe;
   --text-dim: #a7a9be;
-  --accent:   #ff8906;
-  --accent2:  #f25f4c;
-  --green:    #2a9d8f;
-  --blue:     #457b9d;
-  --bridge:   #00d4aa;
+  --accent: #ff8906;
+  --accent2: #f25f4c;
+  --green: #2a9d8f;
+  --blue: #457b9d;
+  --bridge: #00d4aa;
 
   --g1: #e63946;
   --g2: #f4a261;
@@ -63,9 +63,9 @@ body {
   padding: 0;
   background-color: var(--bg);
   color: var(--text);
-  font-family: 'Noto Sans SC', sans-serif;
+  font-family: "Noto Sans SC", sans-serif;
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.2s, color 0.2s;
+  transition: color 0.2s;
   width: 100%;
   min-height: 100vh;
   min-height: 100dvh;
@@ -79,17 +79,30 @@ body {
   width: 100%;
 }
 
-/* 仅由显式工具类隐藏滚动条；桌面端保留原生滚动反馈与可发现性。 */
-.no-scrollbar::-webkit-scrollbar { display: none; }
-.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+/* Hide scrollbars only through this explicit utility; preserve native desktop scroll feedback. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 
-/* PWA 安全区域适配（iPhone 刘海/底部圆角） */
-.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-.pt-safe { padding-top: env(safe-area-inset-top); }
-.pl-safe { padding-left: env(safe-area-inset-left); }
-.pr-safe { padding-right: env(safe-area-inset-right); }
+/* PWA safe-area adjustments for iPhone cutouts and rounded corners. */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+.pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+.pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
 
-/* 移动端 Tab Bar 高度变量，供浮动元素使用 */
+/* Mobile tab bar height used by floating elements. */
 :root {
   --tab-bar-h: 0px;
 }
@@ -99,7 +112,7 @@ body {
   }
 }
 
-/* 移动端内容区域：底部留出 Tab Bar 高度（JS 动态更新 --tab-bar-h） */
+/* Reserve the tab-bar height set by the mobile media query below page content. */
 @media (max-width: 639px) {
   .mobile-content-wrap {
     padding-bottom: var(--tab-bar-h);
@@ -109,9 +122,9 @@ body {
 }
 
 /*
- * PWA standalone 模式（移动端）：
- * 没有浏览器顶栏，pt-14/pt-16 原本用来清除固定导航栏，
- * 改为只保留 safe-area-inset-top（状态栏高度 ~47px iPhone）
+ * Mobile PWA standalone mode:
+ * There is no browser toolbar, so replace the fixed-navigation offset from
+ * pt-14/pt-16 with only safe-area-inset-top (about 47px on iPhone).
  */
 @media (display-mode: standalone) and (max-width: 639px) {
   .pt-14 {
@@ -123,9 +136,9 @@ body {
 }
 
 /*
- * PWA standalone 模式（平板/桌面，如 iPad）：
- * DesktopNav 高度 = 3.5rem + safe-area-inset-top，
- * 页面 pt-14/pt-16 也需要加上同样的偏移，否则内容被导航栏遮住。
+ * Tablet and desktop PWA standalone mode, including iPad:
+ * DesktopNav height is 3.5rem plus safe-area-inset-top. Apply the same offset
+ * to page pt-14/pt-16 spacing so the navigation does not cover the content.
  */
 @media (display-mode: standalone) and (min-width: 640px) {
   .pt-14 {
@@ -136,7 +149,7 @@ body {
   }
 }
 
-/* ─── 首页暖色渐变氛围 ─── */
+/* ─── Warm home-page gradient ─── */
 .home-warm-gradient {
   background: linear-gradient(
     180deg,
@@ -146,7 +159,7 @@ body {
   );
 }
 
-/* 漂浮光斑 */
+/* Floating color orbs */
 .home-orb {
   position: absolute;
   border-radius: 50%;
@@ -182,22 +195,44 @@ body {
 }
 
 @keyframes orb-float-1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33%      { transform: translate(30px, 20px) scale(1.05); }
-  66%      { transform: translate(-15px, 10px) scale(0.95); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, 20px) scale(1.05);
+  }
+  66% {
+    transform: translate(-15px, 10px) scale(0.95);
+  }
 }
 @keyframes orb-float-2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(-25px, 15px) scale(1.08); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-25px, 15px) scale(1.08);
+  }
 }
 @keyframes orb-float-3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  40%      { transform: translate(20px, -10px) scale(1.1); }
-  80%      { transform: translate(-10px, 20px) scale(0.92); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  40% {
+    transform: translate(20px, -10px) scale(1.1);
+  }
+  80% {
+    transform: translate(-10px, 20px) scale(0.92);
+  }
 }
 
-/* 暗色模式下光斑更柔和 */
-[data-theme="dark"] .home-orb { opacity: 0.12; filter: blur(80px); }
+/* Soften the orbs in dark mode. */
+[data-theme="dark"] .home-orb {
+  opacity: 0.12;
+  filter: blur(80px);
+}
 [data-theme="dark"] .home-warm-gradient {
   background: linear-gradient(
     180deg,
@@ -206,16 +241,16 @@ body {
   );
 }
 
-/* ReactFlow 节点样式覆盖 */
+/* React Flow node style overrides */
 .react-flow__node {
-  font-family: 'Noto Sans SC', sans-serif;
+  font-family: "Noto Sans SC", sans-serif;
 }
 
 .react-flow__attribution {
   display: none;
 }
 
-/* 隐藏连接点（LR 布局已由 dagre 控制，不需要手动连接） */
+/* Hide connection handles because Dagre already controls the left-to-right layout. */
 .react-flow__handle {
   opacity: 0;
   pointer-events: none;

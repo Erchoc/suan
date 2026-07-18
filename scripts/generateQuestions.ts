@@ -1,50 +1,54 @@
 /**
- * 题目批量生成脚本
- * 用法：pnpm run gen:questions [--grade N] [--kp ID] [--type MODE] [--concurrency N] [--append] [--dry-run]
+ * Bulk question generation script.
+ * Usage: pnpm run gen:questions [--grade N] [--kp ID] [--type MODE] [--concurrency N] [--append] [--dry-run]
  *
- * 参数：
- *   --grade N         只生成第 N 年级的题目
- *   --kp ID           只生成指定知识点的题目
- *   --type MODE       题型模式：fill_blank | choice | half（各一半）| auto（默认，按年级分配）
- *   --concurrency N   并发数量（默认 1，建议不超过 5 以避免 API 限速）
- *   --append          追加模式：即使知识点已有题目，也继续生成新题追加进去（ID 自动续号）
- *   --dry-run         只打印 Prompt，不实际调用 API
+ * Options:
+ *   --grade N         Generate questions for grade N only.
+ *   --kp ID           Generate questions for one knowledge point only.
+ *   --type MODE       fill_blank | choice | half | auto (default, based on grade).
+ *   --concurrency N   Concurrent requests; defaults to 1 and should stay below 5.
+ *   --append          Append questions even when the knowledge point already has content.
+ *   --dry-run         Print prompts without calling the API.
  *
- * 题型模式说明：
- *   fill_blank  — 仅生成填空题（与存量题一致）
- *   choice      — 仅生成选择题
- *   half        — 5 道选择 + 5 道填空
- *   auto        — 1-3年级: 5选择+3填空+2混合; 4-6年级: 3选择+5填空+2混合
+ * Question modes:
+ *   fill_blank  - Fill-in-the-blank questions only.
+ *   choice      - Multiple-choice questions only.
+ *   half        - Five choice and five fill-in-the-blank questions.
+ *   auto        - Grades 1-3: 5 choice, 3 blank, 2 mixed; grades 4-6: 3 choice, 5 blank, 2 mixed.
  *
- * 环境变量（必须）：
- *   AI_API_KEY   - API 密钥
- *   AI_BASE_URL  - OpenAI 兼容接口地址（如 https://api.openai.com/v1）
- *   AI_MODEL     - 模型名称（默认 gemini-3-flash）
+ * Required environment variables:
+ *   API_KEY      - Provider API key.
+ *   BASE_URL     - Provider base URL; defaults to https://api.deepseek.com.
+ *   MODEL        - Model name; defaults to deepseek-v4-flash.
+ *   AI_PROTOCOL  - openai-chat, openai-coding, or anthropic; defaults to openai-chat.
  *
- * 进度文件：
- *   gen-progress.json  - 记录每个知识点的生成状态（成功/失败/失败次数）
- *   questions.json     - 题目数据唯一来源（成功后实时写入）
- *   gen-errors.log     - 失败详情日志
+ * Progress files:
+ *   gen-progress.json  - Status and attempt counts for each knowledge point.
+ *   questions.json     - Canonical question data, updated after each success.
+ *   gen-errors.log     - Failure details.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import OpenAI from 'openai';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readAIConfig, requestAIText } from './aiText.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const GRAPH_PATH     = path.join(ROOT, 'src/data/knowledge-graph.json');
+const GRAPH_PATH = path.join(ROOT, 'src/data/knowledge-graph.json');
 const QUESTIONS_PATH = path.join(ROOT, 'public/questions.json');
-const LOGS_DIR       = path.join(ROOT, 'logs');
-const PROGRESS_PATH  = path.join(ROOT, 'gen-progress.json');
-const ERROR_LOG      = path.join(LOGS_DIR, 'gen-errors.log');
+const LOGS_DIR = path.join(ROOT, 'logs');
+const PROGRESS_PATH = path.join(ROOT, 'gen-progress.json');
+const ERROR_LOG = path.join(LOGS_DIR, 'gen-errors.log');
 
 const MAX_RETRIES = 3;
 
-// ─── 类型 ────────────────────────────────────────────────────────────────────
+// Types
 
-interface Choice { label: string; content: string }
+interface Choice {
+  label: string;
+  content: string;
+}
 
 type JsonObject = Record<string, unknown>;
 
@@ -52,30 +56,66 @@ function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-interface KPRaw   { id: string; name: string; deps: string[] }
-interface UnitRaw { id: string; name: string; semester: string; kps: KPRaw[] }
-interface DomainRaw { id: string; name: string; icon: string; units: UnitRaw[] }
-interface GradeRaw  { id: string; name: string; color: string; domains: DomainRaw[] }
+interface KPRaw {
+  id: string;
+  name: string;
+  deps: string[];
+}
+interface UnitRaw {
+  id: string;
+  name: string;
+  semester: string;
+  kps: KPRaw[];
+}
+interface DomainRaw {
+  id: string;
+  name: string;
+  icon: string;
+  units: UnitRaw[];
+}
+interface GradeRaw {
+  id: string;
+  name: string;
+  color: string;
+  domains: DomainRaw[];
+}
 interface GraphData {
   meta: { bridgePoints: { groups: { kpIds: string[] }[] } };
   grades: GradeRaw[];
 }
 
 interface Question {
-  id: string; kp_id: string; kp_name: string; grade: string; semester: string;
-  difficulty: string; type?: string; question: string; blanks: string[];
-  choices?: Choice[]; correctChoice?: string;
-  solution: string; common_mistake: string; hint: string;
+  id: string;
+  kp_id: string;
+  kp_name: string;
+  grade: string;
+  semester: string;
+  difficulty: string;
+  type?: string;
+  question: string;
+  blanks: string[];
+  choices?: Choice[];
+  correctChoice?: string;
+  solution: string;
+  common_mistake: string;
+  hint: string;
 }
 
 interface KPMeta {
-  id: string; name: string; deps: string[]; gradeName: string; gradeNum: number;
-  unitSemester: string; unitName: string; domainName: string; isBridge: boolean;
+  id: string;
+  name: string;
+  deps: string[];
+  gradeName: string;
+  gradeNum: number;
+  unitSemester: string;
+  unitName: string;
+  domainName: string;
+  isBridge: boolean;
 }
 
 type TypeMode = 'fill_blank' | 'choice' | 'half' | 'auto';
 
-// ─── 进度追踪 ─────────────────────────────────────────────────────────────────
+// Progress tracking
 
 interface FailedEntry {
   totalAttempts: number;
@@ -94,7 +134,7 @@ function loadProgress(): ProgressData {
     try {
       return JSON.parse(fs.readFileSync(PROGRESS_PATH, 'utf-8'));
     } catch {
-      console.warn('⚠️  gen-progress.json 解析失败，将重建');
+      console.warn('⚠️  Failed to parse gen-progress.json; rebuilding it');
     }
   }
   return { updatedAt: '', succeeded: [], failed: {} };
@@ -105,7 +145,7 @@ function saveProgress(progress: ProgressData) {
   fs.writeFileSync(PROGRESS_PATH, JSON.stringify(progress, null, 2), 'utf-8');
 }
 
-// ─── 参数解析 ─────────────────────────────────────────────────────────────────
+// Argument parsing
 
 const args = process.argv.slice(2);
 const getArg = (flag: string) => {
@@ -114,41 +154,33 @@ const getArg = (flag: string) => {
 };
 const hasFlag = (flag: string) => args.includes(flag);
 
-const GRADE_FILTER  = getArg('--grade') ? parseInt(getArg('--grade')!) : null;
-const KP_FILTER     = getArg('--kp');
-const DRY_RUN       = hasFlag('--dry-run');
-const APPEND_MODE   = hasFlag('--append');
-const TYPE_MODE     = (getArg('--type') ?? 'auto') as TypeMode;
-const CONCURRENCY   = Math.max(1, parseInt(getArg('--concurrency') ?? '1'));
+const GRADE_FILTER = getArg('--grade') ? parseInt(getArg('--grade')!, 10) : null;
+const KP_FILTER = getArg('--kp');
+const DRY_RUN = hasFlag('--dry-run');
+const APPEND_MODE = hasFlag('--append');
+const TYPE_MODE = (getArg('--type') ?? 'auto') as TypeMode;
+const CONCURRENCY = Math.max(1, parseInt(getArg('--concurrency') ?? '1', 10));
 
 if (!['fill_blank', 'choice', 'half', 'auto'].includes(TYPE_MODE)) {
-  console.error('❌ --type 参数无效，可选: fill_blank | choice | half | auto');
+  console.error('❌ Invalid --type value; choose fill_blank, choice, half, or auto');
   process.exit(1);
 }
 
-// ─── AI 客户端 ────────────────────────────────────────────────────────────────
+// AI configuration
 
-const AI_API_KEY = process.env.AI_API_KEY ?? '';
-const AI_BASE_URL = process.env.AI_BASE_URL ?? '';
-const AI_MODEL   = process.env.AI_MODEL ?? 'gemini-3-flash';
+const AI_CONFIG = readAIConfig(process.env);
 
 if (!DRY_RUN) {
-  if (!AI_API_KEY) {
-    console.error('❌ 请设置环境变量 AI_API_KEY');
-    process.exit(1);
-  }
-  if (!AI_BASE_URL) {
-    console.error('❌ 请设置环境变量 AI_BASE_URL（如 https://api.openai.com/v1）');
+  if (!AI_CONFIG.apiKey) {
+    console.error('❌ Set the API_KEY environment variable');
     process.exit(1);
   }
 }
 
-const client = DRY_RUN ? null : new OpenAI({ apiKey: AI_API_KEY, baseURL: AI_BASE_URL });
-
-// 确保 logs 目录存在
+// Ensure the logs directory exists.
 fs.mkdirSync(LOGS_DIR, { recursive: true });
 
-// ─── 数据加载 ─────────────────────────────────────────────────────────────────
+// Data loading
 
 const graphData: GraphData = JSON.parse(fs.readFileSync(GRAPH_PATH, 'utf-8'));
 
@@ -161,30 +193,35 @@ graphData.grades.forEach((grade, gi) => {
     domain.units.forEach(unit => {
       unit.kps.forEach(kp => {
         allKPs.push({
-          id: kp.id, name: kp.name, deps: kp.deps,
-          gradeName: grade.name, gradeNum: gi + 1,
-          unitSemester: unit.semester, unitName: unit.name,
-          domainName: domain.name, isBridge: bridgeSet.has(kp.id),
+          id: kp.id,
+          name: kp.name,
+          deps: kp.deps,
+          gradeName: grade.name,
+          gradeNum: gi + 1,
+          unitSemester: unit.semester,
+          unitName: unit.name,
+          domainName: domain.name,
+          isBridge: bridgeSet.has(kp.id),
         });
       });
     });
   });
 });
 
-// ─── 筛选目标 ─────────────────────────────────────────────────────────────────
+// Select targets
 
 let targetKPs = allKPs;
 if (KP_FILTER) {
   targetKPs = allKPs.filter(k => k.id === KP_FILTER);
   if (targetKPs.length === 0) {
-    console.error(`❌ 找不到知识点 ${KP_FILTER}`);
+    console.error(`❌ Knowledge point ${KP_FILTER} was not found`);
     process.exit(1);
   }
 } else if (GRADE_FILTER) {
   targetKPs = allKPs.filter(k => k.gradeNum === GRADE_FILTER);
 }
 
-// ─── 加载已有题目 & 进度（断点续跑）─────────────────────────────────────────
+// Load existing questions and resumable progress
 
 let existingQuestions: Question[] = [];
 if (fs.existsSync(QUESTIONS_PATH)) {
@@ -194,47 +231,47 @@ const doneKPIds = new Set(existingQuestions.map(q => q.kp_id));
 
 const progress = loadProgress();
 const historyFailedIds = Object.keys(progress.failed);
-const historyFailedInScope = historyFailedIds.filter(id =>
-  targetKPs.some(k => k.id === id)
-);
+const historyFailedInScope = historyFailedIds.filter(id => targetKPs.some(k => k.id === id));
 
-// --append 模式：不跳过已有知识点，直接追加新题
-// 普通模式：跳过已有知识点（断点续跑）
-const pendingKPs = APPEND_MODE
-  ? targetKPs
-  : targetKPs.filter(k => !doneKPIds.has(k.id));
+// Append mode keeps existing knowledge points; normal mode skips them when resuming.
+const pendingKPs = APPEND_MODE ? targetKPs : targetKPs.filter(k => !doneKPIds.has(k.id));
 
 console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('  📊 历史进度（gen-progress.json）');
-console.log(`     成功: ${progress.succeeded.length} 个知识点`);
+console.log('  📊 Previous progress (gen-progress.json)');
+console.log(`     Succeeded: ${progress.succeeded.length} knowledge points`);
 if (historyFailedInScope.length > 0) {
-  console.log(`     失败: ${historyFailedInScope.length} 个（将在本次重新尝试）`);
+  console.log(`     Failed: ${historyFailedInScope.length} (retrying now)`);
   historyFailedInScope.forEach(id => {
     const entry = progress.failed[id];
     const kp = allKPs.find(k => k.id === id);
-    console.log(`       - ${id} ${kp?.name ?? ''} | 历史尝试 ${entry.totalAttempts} 次 | 上次错误: ${entry.lastError.slice(0, 60)}`);
+    console.log(
+      `       - ${id} ${kp?.name ?? ''} | ${entry.totalAttempts} attempts | Last error: ${entry.lastError.slice(0, 60)}`,
+    );
   });
 }
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log(`  📚 目标知识点: ${targetKPs.length} 个`);
-console.log(`     已完成:   ${doneKPIds.size} 个（questions.json 中已有）`);
-console.log(`     待处理:   ${pendingKPs.length} 个${historyFailedInScope.length > 0 ? `（含 ${historyFailedInScope.length} 个历史失败重试）` : ''}`);
-console.log(`  📝 题型模式: ${TYPE_MODE}`);
-console.log(`  ⚡ 并发数量: ${CONCURRENCY}`);
-if (APPEND_MODE) console.log(`  ➕ 追加模式: 已有知识点将追加新题目`);
+console.log(`  📚 Target knowledge points: ${targetKPs.length}`);
+console.log(`     Complete: ${doneKPIds.size} already in questions.json`);
+console.log(
+  `     Pending:  ${pendingKPs.length}${historyFailedInScope.length > 0 ? ` including ${historyFailedInScope.length} retries` : ''}`,
+);
+console.log(`  📝 Question mode: ${TYPE_MODE}`);
+console.log(`  ⚡ Concurrency: ${CONCURRENCY}`);
+if (APPEND_MODE) console.log('  ➕ Append mode: adding questions to existing knowledge points');
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
 if (!DRY_RUN) {
-  console.log(`🔗 接口地址: ${AI_BASE_URL}`);
-  console.log(`🤖 使用模型: ${AI_MODEL}\n`);
+  console.log(`🔗 Base URL: ${AI_CONFIG.baseUrl}`);
+  console.log(`🔌 Protocol: ${AI_CONFIG.protocol}`);
+  console.log(`🤖 Model: ${AI_CONFIG.model}\n`);
 }
 
 if (pendingKPs.length === 0) {
-  console.log('✅ 全部知识点已有题目，无需重新生成');
+  console.log('✅ Every knowledge point already has questions');
   process.exit(0);
 }
 
-// ─── 题型分配：根据 --type 和年级决定每个 KP 的生成计划 ─────────────────────
+// Build a generation plan for each knowledge point from --type and grade
 
 interface GenPlan {
   type: 'fill_blank' | 'choice' | 'mixed';
@@ -254,14 +291,14 @@ function getGenPlans(kp: KPMeta): GenPlan[] {
       ];
     case 'auto':
       if (kp.gradeNum <= 3) {
-        // 低年级：5选择+3填空+2混合
+        // Grades 1-3: five choice, three fill-in-the-blank, and two mixed questions.
         return [
           { type: 'choice', count: 5 },
           { type: 'fill_blank', count: 3 },
           { type: 'mixed', count: 2 },
         ];
       } else {
-        // 高年级：3选择+5填空+2混合
+        // Grades 4-6: three choice, five fill-in-the-blank, and two mixed questions.
         return [
           { type: 'choice', count: 3 },
           { type: 'fill_blank', count: 5 },
@@ -271,26 +308,30 @@ function getGenPlans(kp: KPMeta): GenPlan[] {
   }
 }
 
-// ─── Prompt 构造 ──────────────────────────────────────────────────────────────
+// Prompt construction
 
-// 计算某知识点某题型已有的最大序号（用于 append 模式避免 ID 冲突）
+// Find the highest existing sequence number for a knowledge point and question type.
 function getNextSeqNum(kpId: string, genType: 'fill_blank' | 'choice' | 'mixed'): number {
-  const prefix = genType === 'fill_blank' ? `${kpId}-`
-    : genType === 'choice' ? `${kpId}-c`
-    : `${kpId}-m`;
+  const prefix =
+    genType === 'fill_blank' ? `${kpId}-` : genType === 'choice' ? `${kpId}-c` : `${kpId}-m`;
   let max = 0;
   existingQuestions.forEach(q => {
     if (q.id.startsWith(prefix)) {
       const suffix = q.id.slice(prefix.length);
       const num = parseInt(suffix, 10);
-      if (!isNaN(num) && num > max) max = num;
+      if (!Number.isNaN(num) && num > max) max = num;
     }
   });
   return max + 1;
 }
 
-function buildPrompt(kp: KPMeta, genType: 'fill_blank' | 'choice' | 'mixed', count: number, startSeq: number): string {
-  const depsDesc  = kp.deps.length > 0 ? `\n前置知识点：${kp.deps.join('、')}` : '';
+function buildPrompt(
+  kp: KPMeta,
+  genType: 'fill_blank' | 'choice' | 'mixed',
+  count: number,
+  startSeq: number,
+): string {
+  const depsDesc = kp.deps.length > 0 ? `\n前置知识点：${kp.deps.join('、')}` : '';
   const bridgeNote = kp.isBridge ? '\n⚠️ 该知识点是小初衔接桥头堡，请适当增加综合应用题比例。' : '';
   const seqStr = String(startSeq).padStart(2, '0');
 
@@ -420,20 +461,19 @@ ${kpHeader}
 ]`;
 }
 
-// ─── 校验 ─────────────────────────────────────────────────────────────────────
+// Validation
 
 function validateQuestion(q: unknown): q is Question {
   if (!isJsonObject(q)) return false;
 
   const question = q.question;
-  const baseValid = (
+  const baseValid =
     typeof q.id === 'string' &&
     typeof q.kp_id === 'string' &&
     typeof q.difficulty === 'string' &&
     ['easy', 'medium', 'hard'].includes(q.difficulty) &&
     typeof question === 'string' &&
-    typeof q.solution === 'string'
-  );
+    typeof q.solution === 'string';
   if (!baseValid) return false;
 
   const qType = q.type || 'fill_blank';
@@ -444,7 +484,8 @@ function validateQuestion(q: unknown): q is Question {
 
   if (qType === 'choice') {
     return (
-      Array.isArray(q.choices) && q.choices.length >= 2 &&
+      Array.isArray(q.choices) &&
+      q.choices.length >= 2 &&
       typeof q.correctChoice === 'string' &&
       q.choices.some(choice => isJsonObject(choice) && choice.label === q.correctChoice)
     );
@@ -453,17 +494,19 @@ function validateQuestion(q: unknown): q is Question {
   if (qType === 'mixed') {
     return (
       question.includes('____') &&
-      Array.isArray(q.blanks) && q.blanks.length > 0 &&
-      Array.isArray(q.choices) && q.choices.length >= 2 &&
+      Array.isArray(q.blanks) &&
+      q.blanks.length > 0 &&
+      Array.isArray(q.choices) &&
+      q.choices.length >= 2 &&
       typeof q.correctChoice === 'string'
     );
   }
 
-  // 存量题无 type 字段，按填空题校验
+  // Validate legacy questions without type as fill-in-the-blank questions.
   return question.includes('____') && Array.isArray(q.blanks) && q.blanks.length > 0;
 }
 
-// ─── 单次 API 调用（含重试）────────────────────────────────────────────────────
+// One API request with retries
 
 async function generateBatch(
   kp: KPMeta,
@@ -485,49 +528,50 @@ async function generateBatch(
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 1) {
-      const delayMs = Math.pow(2, attempt - 1) * 1000;
-      console.log(`    🔄 ${genType} 第 ${attempt}/${MAX_RETRIES} 次重试，等待 ${delayMs / 1000}s…`);
+      const delayMs = 2 ** (attempt - 1) * 1000;
+      console.log(`    🔄 ${genType} retry ${attempt}/${MAX_RETRIES} after ${delayMs / 1000}s…`);
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
 
     try {
-      const response = await client!.chat.completions.create({
-        model: AI_MODEL,
-        messages: [{ role: 'user', content: prompt }],
+      const raw = await requestAIText({
+        config: AI_CONFIG,
+        prompt,
         temperature: 0.7,
       });
 
-      const raw = response.choices[0]?.message?.content ?? '';
-
       const jsonMatch = raw.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
-        throw new Error(`返回内容不含 JSON 数组（前200字）:\n${raw.slice(0, 200)}`);
+        throw new Error(
+          `Response does not contain a JSON array (first 200 characters):\n${raw.slice(0, 200)}`,
+        );
       }
 
       const parsed: unknown = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(parsed)) throw new Error('解析结果不是数组');
+      if (!Array.isArray(parsed)) throw new Error('Parsed result is not an array');
 
       const valid: Question[] = [];
       const parsedItems: unknown[] = parsed;
       parsedItems.forEach((candidate, i) => {
-        // 确保 type 字段存在
+        // Ensure the type field exists.
         if (isJsonObject(candidate) && !candidate.type) candidate.type = genType;
         if (!validateQuestion(candidate)) {
-          console.warn(`    ⚠️  ${genType} 第 ${i + 1} 题格式不完整，跳过`);
+          console.warn(`    ⚠️  Skipping malformed ${genType} question ${i + 1}`);
           return;
         }
         valid.push(candidate);
       });
 
-      if (valid.length === 0) throw new Error('所有题目均格式不完整');
+      if (valid.length === 0) throw new Error('Every generated question is malformed');
 
-      console.log(`    ✅ ${genType} 成功 ${valid.length} 道${attempt > 1 ? `（第 ${attempt} 次）` : ''}`);
+      console.log(
+        `    ✅ Generated ${valid.length} ${genType} questions${attempt > 1 ? ` on attempt ${attempt}` : ''}`,
+      );
       return valid;
-
     } catch (err) {
       lastError = err;
       if (attempt < MAX_RETRIES) {
-        console.warn(`    ⚠️  ${genType} 第 ${attempt} 次失败: ${err}`);
+        console.warn(`    ⚠️  ${genType} attempt ${attempt} failed: ${err}`);
       }
     }
   }
@@ -537,7 +581,7 @@ async function generateBatch(
 
 async function generateForKP(kp: KPMeta, index: number, total: number): Promise<Question[]> {
   const historyAttempts = progress.failed[kp.id]?.totalAttempts ?? 0;
-  const attemptLabel = historyAttempts > 0 ? `（历史已失败 ${historyAttempts} 次）` : '';
+  const attemptLabel = historyAttempts > 0 ? ` (${historyAttempts} previous failures)` : '';
   const plans = getGenPlans(kp);
   const planDesc = plans.map(p => `${p.type}x${p.count}`).join('+');
 
@@ -554,14 +598,14 @@ async function generateForKP(kp: KPMeta, index: number, total: number): Promise<
   return allQuestions;
 }
 
-// ─── 主循环（支持并发）────────────────────────────────────────────────────────
+// Concurrent main loop
 
 async function main() {
   const results: Question[] = [...existingQuestions];
   let successCount = 0;
   let failCount = 0;
 
-  // 将待处理 KP 切分为批次，每批 CONCURRENCY 个并发执行
+  // Split pending knowledge points into batches of CONCURRENCY parallel tasks.
   for (let batchStart = 0; batchStart < pendingKPs.length; batchStart += CONCURRENCY) {
     const batch = pendingKPs.slice(batchStart, batchStart + CONCURRENCY);
 
@@ -572,7 +616,7 @@ async function main() {
       }),
     );
 
-    // 处理批次结果，按完成顺序追加（保持确定性顺序）
+    // Append batch results in completion order to keep output deterministic.
     for (let j = 0; j < batch.length; j++) {
       const kp = batch[j];
       const settled = batchSettled[j];
@@ -598,18 +642,18 @@ async function main() {
           lastAttemptAt: new Date().toISOString(),
         };
         const logLine = `[${new Date().toISOString()}] ${kp.id} ${kp.name}: ${err}\n`;
-        console.error(`  ❌ 全部 ${MAX_RETRIES} 次尝试均失败: ${err}`);
+        console.error(`  ❌ Failed after all ${MAX_RETRIES} attempts: ${err}`);
         fs.appendFileSync(ERROR_LOG, logLine);
       }
     }
 
-    // 每批结束后统一写入文件（减少 IO 次数）
+    // Write once after each batch to reduce I/O.
     if (!DRY_RUN) {
       fs.writeFileSync(QUESTIONS_PATH, JSON.stringify(results, null, 2), 'utf-8');
       saveProgress(progress);
     }
 
-    // 批次间间隔（最后一批不等待）
+    // Wait between batches except after the final batch.
     if (!DRY_RUN && batchStart + CONCURRENCY < pendingKPs.length) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
@@ -617,13 +661,15 @@ async function main() {
 
   if (!DRY_RUN) {
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`  🎉 本次运行完成`);
-    console.log(`     成功: ${successCount} 个知识点`);
-    console.log(`     失败: ${failCount} 个知识点${failCount > 0 ? '（下次运行将自动重试）' : ''}`);
-    console.log(`  📁 题目已写入: ${QUESTIONS_PATH}`);
-    console.log(`  📊 进度已记录: ${PROGRESS_PATH}`);
+    console.log('  🎉 Run complete');
+    console.log(`     Succeeded: ${successCount} knowledge points`);
+    console.log(
+      `     Failed: ${failCount} knowledge points${failCount > 0 ? ' (will retry next run)' : ''}`,
+    );
+    console.log(`  📁 Questions written to: ${QUESTIONS_PATH}`);
+    console.log(`  📊 Progress written to: ${PROGRESS_PATH}`);
     if (failCount > 0) {
-      console.log(`  ⚠️  错误详情:   ${ERROR_LOG}`);
+      console.log(`  ⚠️  Error details: ${ERROR_LOG}`);
     }
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
   }

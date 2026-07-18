@@ -1,22 +1,22 @@
-import { useCallback, useMemo } from 'react';
 import {
-  ReactFlow,
   Background,
   Controls,
-  MiniMap,
-  useNodesState,
-  useEdgesState,
-  Position,
-  MarkerType,
-  type Node,
   type Edge,
+  MarkerType,
+  MiniMap,
+  type Node,
   type NodeMouseHandler,
+  Position,
+  ReactFlow,
+  useEdgesState,
+  useNodesState,
 } from '@xyflow/react';
+import { useCallback, useMemo } from 'react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
-import { kpMap, bridgeMap } from '../../data/kpIndex';
-import type { KPWithContext } from '../../data/kpIndex';
 import { useTheme } from '../../contexts/theme';
+import type { KPWithContext } from '../../data/kpIndex';
+import { bridgeMap, kpMap } from '../../data/kpIndex';
 
 interface KnowledgeGraphProps {
   filter?: {
@@ -51,11 +51,11 @@ function buildLayout(kps: KPWithContext[], highlightIds?: Set<string>, isDark = 
 
   dagre.layout(g);
 
-  const dimmedBg     = isDark ? '#1a1830' : '#f3f0e8';
-  const dimmedText   = isDark ? 'rgba(167,169,190,0.4)' : 'rgba(122,120,146,0.5)';
+  const dimmedBg = isDark ? '#1a1830' : '#f3f0e8';
+  const dimmedText = isDark ? 'rgba(167,169,190,0.4)' : 'rgba(122,120,146,0.5)';
   const dimmedBorder = isDark ? '#2e2b4a' : '#e4dfd4';
-  const dimmedEdge   = isDark ? '#2e2b4a' : '#d0cbc0';
-  const activeEdge   = isDark ? 'rgba(167,169,190,0.27)' : 'rgba(100,95,130,0.3)';
+  const dimmedEdge = isDark ? '#2e2b4a' : '#d0cbc0';
+  const activeEdge = isDark ? 'rgba(167,169,190,0.27)' : 'rgba(100,95,130,0.3)';
 
   const nodes: Node[] = kps.map(kp => {
     const pos = g.node(kp.id);
@@ -91,9 +91,7 @@ function buildLayout(kps: KPWithContext[], highlightIds?: Set<string>, isDark = 
   kps.forEach(kp => {
     kp.deps.forEach(dep => {
       if (kpIds.has(dep)) {
-        const isDimmed = highlightIds
-          ? !highlightIds.has(dep) || !highlightIds.has(kp.id)
-          : false;
+        const isDimmed = highlightIds ? !highlightIds.has(dep) || !highlightIds.has(kp.id) : false;
         const strokeColor = isDimmed ? dimmedEdge : activeEdge;
         edges.push({
           id: `${dep}-${kp.id}`,
@@ -132,25 +130,28 @@ export default function KnowledgeGraph({ filter, onNodeClick }: KnowledgeGraphPr
     if (!filter?.search?.trim()) return undefined;
     const q = filter.search.trim().toLowerCase();
     return new Set(
-      filteredKPs.filter(k => k.name.toLowerCase().includes(q) || k.id.includes(q)).map(k => k.id)
+      filteredKPs.filter(k => k.name.toLowerCase().includes(q) || k.id.includes(q)).map(k => k.id),
     );
   }, [filteredKPs, filter?.search]);
 
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
     () => buildLayout(filteredKPs, searchHighlight, isDark),
-    [filteredKPs, searchHighlight, isDark]
+    [filteredKPs, searchHighlight, isDark],
   );
 
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
-  const handleNodeClick: NodeMouseHandler = useCallback((_e, node) => {
-    const kp = kpMap.get(node.id);
-    if (kp) onNodeClick?.(kp);
-  }, [onNodeClick]);
+  const handleNodeClick: NodeMouseHandler = useCallback(
+    (_e, node) => {
+      const kp = kpMap.get(node.id);
+      if (kp) onNodeClick?.(kp);
+    },
+    [onNodeClick],
+  );
 
-  const bgDotColor   = isDark ? '#2e2b4a' : '#d8d3c8';
-  const minimapBg    = isDark ? '#1a1830' : '#f3f0e8';
+  const bgDotColor = isDark ? '#2e2b4a' : '#d8d3c8';
+  const minimapBg = isDark ? '#1a1830' : '#f3f0e8';
   const minimapBorder = isDark ? '#2e2b4a' : '#e4dfd4';
 
   return (
@@ -166,10 +167,16 @@ export default function KnowledgeGraph({ filter, onNodeClick }: KnowledgeGraphPr
       style={{ background: 'var(--bg)' }}
     >
       <Background color={bgDotColor} gap={20} />
-      <Controls style={{ background: 'var(--surface)', border: `1px solid var(--border)`, color: 'var(--text)' }} />
+      <Controls
+        style={{
+          background: 'var(--surface)',
+          border: `1px solid var(--border)`,
+          color: 'var(--text)',
+        }}
+      />
       <MiniMap
         style={{ background: minimapBg, border: `1px solid ${minimapBorder}` }}
-        nodeColor={(node) => {
+        nodeColor={node => {
           const kp = kpMap.get(node.id);
           return kp ? kp.gradeColor : minimapBorder;
         }}

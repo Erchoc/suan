@@ -21,11 +21,7 @@ export function judgeQuestion(
     case 'choice':
       return !!choiceAnswer && choiceAnswer === q.correctChoice;
     case 'mixed':
-      return (
-        !!choiceAnswer &&
-        choiceAnswer === q.correctChoice &&
-        judgeBlanks(answers, q.blanks)
-      );
+      return !!choiceAnswer && choiceAnswer === q.correctChoice && judgeBlanks(answers, q.blanks);
     default:
       return judgeBlanks(answers, q.blanks);
   }

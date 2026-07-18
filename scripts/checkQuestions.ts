@@ -1,43 +1,47 @@
 /**
- * 题目质量校验脚本
+ * Question quality validation script.
  *
- * 用法：pnpm run check:questions [--grade N] [--kp ID] [--limit N] [--dry-run] [--force]
+ * Usage: pnpm run check:questions [--grade N] [--kp ID] [--limit N] [--dry-run] [--force]
  *
- * 工作流程：
- *   1. 读取 public/questions.json
- *   2. 默认跳过已校验的题目（enable 字段已设置）；--force 全部重新校验
- *   3. 逐题发送给 LLM 做质量审核
- *   4. 异常题目：设置 enable=false，checkMessage 写入原因
- *   5. 正常题目：设置 enable=true，清除 checkMessage
- *   6. 支持断点续跑（默认跳过已有 enable 字段的题目）
+ * Workflow:
+ *   1. Read public/questions.json.
+ *   2. Skip validated questions by default; --force validates everything again.
+ *   3. Send each question to an LLM for quality review.
+ *   4. Set enable=false and write checkMessage for invalid questions.
+ *   5. Set enable=true and clear checkMessage for valid questions.
+ *   6. Resume by skipping questions that already have an enable field.
  *
- * 参数：
- *   --grade N    只校验第 N 年级的题目
- *   --kp ID      只校验指定知识点的题目
- *   --start ID   从指定题目 ID 开始校验（含该题，用于网络中断后手动续跑）
- *   --limit N    最多校验 N 道题（默认全部）
- *   --batch N    每批发送 N 道题（默认 5，减少 API 调用次数）
- *   --force      忽略 enable 字段，从第 1 道开始全量重新校验
- *   --dry-run    只打印 prompt，不调用 API
+ * Options:
+ *   --grade N    Validate only grade N.
+ *   --kp ID      Validate only one knowledge point.
+ *   --start ID   Resume at the specified question ID, inclusive.
+ *   --limit N    Validate at most N questions; defaults to all.
+ *   --batch N    Send N questions per batch; defaults to 5.
+ *   --force      Ignore enable and validate everything from the beginning.
+ *   --dry-run    Print prompts without calling the API.
  *
- * 环境变量：
- *   AI_API_KEY   - API 密钥
- *   AI_BASE_URL  - OpenAI 兼容接口地址
- *   AI_MODEL     - 模型名称
+ * Environment variables:
+ *   API_KEY      - Provider API key.
+ *   BASE_URL     - Provider base URL; defaults to https://api.deepseek.com.
+ *   MODEL        - Model name; defaults to deepseek-v4-flash.
+ *   AI_PROTOCOL  - openai-chat, openai-coding, or anthropic; defaults to openai-chat.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import OpenAI from 'openai';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readAIConfig, requestAIText } from './aiText.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const QUESTIONS_PATH = path.join(ROOT, 'public/questions.json');
 
-// ─── 类型 ────────────────────────────────────────────────────────────────────
+// Types
 
-interface Choice { label: string; content: string }
+interface Choice {
+  label: string;
+  content: string;
+}
 
 interface Question {
   id: string;
@@ -64,7 +68,7 @@ interface CheckResult {
   reason?: string;
 }
 
-// ─── 参数解析 ─────────────────────────────────────────────────────────────────
+// Argument parsing
 
 const args = process.argv.slice(2);
 const getArg = (flag: string) => {
@@ -73,43 +77,38 @@ const getArg = (flag: string) => {
 };
 const hasFlag = (flag: string) => args.includes(flag);
 
-const GRADE_FILTER = getArg('--grade') ? parseInt(getArg('--grade')!) : null;
-const KP_FILTER    = getArg('--kp');
-const START_ID     = getArg('--start');
-const LIMIT        = getArg('--limit') ? parseInt(getArg('--limit')!) : Infinity;
-const BATCH_SIZE   = getArg('--batch') ? parseInt(getArg('--batch')!) : 5;
-const FORCE        = hasFlag('--force');
-const DRY_RUN      = hasFlag('--dry-run');
+const GRADE_FILTER = getArg('--grade') ? parseInt(getArg('--grade')!, 10) : null;
+const KP_FILTER = getArg('--kp');
+const START_ID = getArg('--start');
+const LIMIT = getArg('--limit') ? parseInt(getArg('--limit')!, 10) : Infinity;
+const BATCH_SIZE = getArg('--batch') ? parseInt(getArg('--batch')!, 10) : 5;
+const FORCE = hasFlag('--force');
+const DRY_RUN = hasFlag('--dry-run');
 
-// ─── AI 客户端 ────────────────────────────────────────────────────────────────
+// AI configuration
 
-const AI_API_KEY  = process.env.AI_API_KEY ?? '';
-const AI_BASE_URL = process.env.AI_BASE_URL ?? '';
-const AI_MODEL    = process.env.AI_MODEL ?? '';
+const AI_CONFIG = readAIConfig(process.env);
 
 if (!DRY_RUN) {
-  if (!AI_API_KEY) { console.error('❌ 请设置环境变量 AI_API_KEY'); process.exit(1); }
-  if (!AI_BASE_URL) { console.error('❌ 请设置环境变量 AI_BASE_URL'); process.exit(1); }
-  if (!AI_MODEL) { console.error('❌ 请设置环境变量 AI_MODEL'); process.exit(1); }
+  if (!AI_CONFIG.apiKey) {
+    console.error('❌ Set the API_KEY environment variable');
+    process.exit(1);
+  }
 }
 
-const client = DRY_RUN ? null : new OpenAI({ apiKey: AI_API_KEY, baseURL: AI_BASE_URL });
-
-// ─── 数据加载 ─────────────────────────────────────────────────────────────────
+// Data loading
 
 if (!fs.existsSync(QUESTIONS_PATH)) {
-  console.error('❌ 找不到 public/questions.json');
+  console.error('❌ public/questions.json was not found');
   process.exit(1);
 }
 
 const allQuestions: Question[] = JSON.parse(fs.readFileSync(QUESTIONS_PATH, 'utf-8'));
 
-// ─── 筛选待校验题目 ──────────────────────────────────────────────────────────
+// Select questions to validate
 
-// --force：所有题目都重新校验；默认：只处理 enable === undefined 的未校验题目
-let pending = FORCE
-  ? [...allQuestions]
-  : allQuestions.filter(q => q.enable === undefined);
+// --force validates every question; the default processes only questions with enable === undefined.
+let pending = FORCE ? [...allQuestions] : allQuestions.filter(q => q.enable === undefined);
 
 if (GRADE_FILTER) {
   const gradeNames = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'];
@@ -122,10 +121,10 @@ if (KP_FILTER) {
 if (START_ID) {
   const startIdx = pending.findIndex(q => q.id === START_ID);
   if (startIdx === -1) {
-    console.error(`❌ 找不到题目 ID "${START_ID}"（可能不存在）`);
+    console.error(`❌ Question ID "${START_ID}" was not found`);
     process.exit(1);
   }
-  console.log(`⏩ --start ${START_ID}：跳过前 ${startIdx} 道题，从第 ${startIdx + 1} 道开始`);
+  console.log(`⏩ --start ${START_ID}: skipped ${startIdx} questions; resuming at ${startIdx + 1}`);
   pending = pending.slice(startIdx);
 }
 
@@ -134,24 +133,25 @@ pending = pending.slice(0, LIMIT);
 const alreadyChecked = allQuestions.filter(q => q.enable !== undefined).length;
 
 console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log(`  📊 题目总数:     ${allQuestions.length}`);
-console.log(`     已校验:       ${alreadyChecked}`);
-console.log(`     待校验:       ${pending.length}${FORCE ? '（--force 全量）' : ''}`);
-console.log(`     批次大小:     ${BATCH_SIZE}`);
-if (START_ID) console.log(`     续跑起点:     ${START_ID}`);
+console.log(`  📊 Total questions:   ${allQuestions.length}`);
+console.log(`     Validated:         ${alreadyChecked}`);
+console.log(`     Pending:           ${pending.length}${FORCE ? ' (--force all)' : ''}`);
+console.log(`     Batch size:        ${BATCH_SIZE}`);
+if (START_ID) console.log(`     Resume from:       ${START_ID}`);
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
 if (pending.length === 0) {
-  console.log('✅ 全部题目已校验完成');
+  console.log('✅ Every question has already been validated');
   process.exit(0);
 }
 
 if (!DRY_RUN) {
-  console.log(`🔗 接口地址: ${AI_BASE_URL}`);
-  console.log(`🤖 使用模型: ${AI_MODEL}\n`);
+  console.log(`🔗 Base URL: ${AI_CONFIG.baseUrl}`);
+  console.log(`🔌 Protocol: ${AI_CONFIG.protocol}`);
+  console.log(`🤖 Model: ${AI_CONFIG.model}\n`);
 }
 
-// ─── Prompt 构造 ──────────────────────────────────────────────────────────────
+// Prompt construction
 
 function buildCheckPrompt(batch: Question[]): string {
   const questionsJson = batch.map(q => {
@@ -212,62 +212,65 @@ ${JSON.stringify(questionsJson, null, 2)}
 ]`;
 }
 
-// ─── 单批次校验 ──────────────────────────────────────────────────────────────
+// Validate one batch
 
-async function checkBatch(batch: Question[], batchNum: number, totalBatches: number): Promise<CheckResult[]> {
+async function checkBatch(
+  batch: Question[],
+  batchNum: number,
+  totalBatches: number,
+): Promise<CheckResult[]> {
   const prompt = buildCheckPrompt(batch);
   const ids = batch.map(q => q.id).join(', ');
 
   if (DRY_RUN) {
     console.log(`\n${'─'.repeat(60)}`);
-    console.log(`[dry-run] 批次 ${batchNum}/${totalBatches}（${batch.length} 道）: ${ids}`);
-    console.log(prompt.slice(0, 500) + '\n...(省略)');
+    console.log(`[dry-run] Batch ${batchNum}/${totalBatches} (${batch.length} questions): ${ids}`);
+    console.log(`${prompt.slice(0, 500)}\n...(truncated)`);
     return [];
   }
 
-  console.log(`  [${batchNum}/${totalBatches}] 校验: ${ids}`);
+  console.log(`  [${batchNum}/${totalBatches}] Validating: ${ids}`);
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     if (attempt > 1) {
-      const delay = Math.pow(2, attempt - 1) * 1000;
-      console.log(`    🔄 第 ${attempt}/3 次重试，等待 ${delay / 1000}s…`);
+      const delay = 2 ** (attempt - 1) * 1000;
+      console.log(`    🔄 Retry ${attempt}/3 after ${delay / 1000}s…`);
       await new Promise(r => setTimeout(r, delay));
     }
 
     try {
-      const response = await client!.chat.completions.create({
-        model: AI_MODEL,
-        messages: [{ role: 'user', content: prompt }],
+      const raw = await requestAIText({
+        config: AI_CONFIG,
+        prompt,
         temperature: 0.1,
       });
-
-      const raw = response.choices[0]?.message?.content ?? '';
       const jsonMatch = raw.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) throw new Error(`返回不含 JSON 数组:\n${raw.slice(0, 200)}`);
+      if (!jsonMatch)
+        throw new Error(`Response does not contain a JSON array:\n${raw.slice(0, 200)}`);
 
       const parsed: CheckResult[] = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(parsed)) throw new Error('解析结果不是数组');
+      if (!Array.isArray(parsed)) throw new Error('Parsed result is not an array');
 
-      const validResults = parsed.filter(r =>
-        typeof r.id === 'string' && ['ok', 'error'].includes(r.status)
+      const validResults = parsed.filter(
+        r => typeof r.id === 'string' && ['ok', 'error'].includes(r.status),
       );
 
-      if (validResults.length === 0) throw new Error('无有效校验结果');
+      if (validResults.length === 0) throw new Error('No valid validation results');
 
       return validResults;
     } catch (err) {
       if (attempt === 3) {
-        console.error(`    ❌ 批次 ${batchNum} 全部重试失败: ${err}`);
+        console.error(`    ❌ Batch ${batchNum} failed after all retries: ${err}`);
         return [];
       }
-      console.warn(`    ⚠️  第 ${attempt} 次失败: ${err}`);
+      console.warn(`    ⚠️  Attempt ${attempt} failed: ${err}`);
     }
   }
 
   return [];
 }
 
-// ─── 主流程 ──────────────────────────────────────────────────────────────────
+// Main flow
 
 async function main() {
   const idToIndex = new Map<string, number>();
@@ -307,7 +310,7 @@ async function main() {
         allQuestions[idx].enable = true;
         delete allQuestions[idx].checkMessage;
         okCount++;
-        console.log(`    ✅ ${q.id} ${q.kp_name} — 正常`);
+        console.log(`    ✅ ${q.id} ${q.kp_name} — valid`);
       } else {
         allQuestions[idx].enable = false;
         allQuestions[idx].checkMessage = result.reason ?? '未知原因';
@@ -316,7 +319,7 @@ async function main() {
       }
     }
 
-    // 每批完成后实时写入
+    // Persist after each completed batch.
     fs.writeFileSync(QUESTIONS_PATH, JSON.stringify(allQuestions, null, 2), 'utf-8');
 
     if (!DRY_RUN && bi < batches.length - 1) {
@@ -324,17 +327,19 @@ async function main() {
     }
   }
 
-  console.log([
-    '',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '  🎉 校验完成',
-    `     正常:   ${okCount} 道 (enable=true)`,
-    `     异常:   ${errorCount} 道 (enable=false)`,
-    `     跳过:   ${skipCount} 道 (API 未返回结果)`,
-    `  📁 已更新: ${QUESTIONS_PATH}`,
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '',
-  ].join('\n'));
+  console.log(
+    [
+      '',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '  🎉 Validation complete',
+      `     Valid:    ${okCount} (enable=true)`,
+      `     Invalid:  ${errorCount} (enable=false)`,
+      `     Skipped:  ${skipCount} (no API result)`,
+      `  📁 Updated: ${QUESTIONS_PATH}`,
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '',
+    ].join('\n'),
+  );
 }
 
 main().catch(err => {

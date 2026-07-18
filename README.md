@@ -3,6 +3,7 @@
 算道是一个面向小学一至六年级的智能学习平台，提供知识图谱、摸底诊断、复习与预习流程，并通过流式 AI 对话辅助孩子理解数学知识点。
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Erchoc/suan/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/Erchoc/suan/actions/workflows/ci.yml)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Erchoc/suan)
 
 - 在线地址：[https://suan.longye.site](https://suan.longye.site)
 - 开源协议：[MIT](LICENSE)
@@ -40,25 +41,48 @@
     └── Hono Cloudflare Worker
         ├── /api/health
         └── /api/ai/chat
-            └── DeepSeek 的 OpenAI 兼容接口（流式响应）
+            └── 可配置 AI 上游（Chat Completions / Responses / Anthropic Messages）
 ```
 
 - 前端：Vite 8、React 18、TypeScript、React Router、Tailwind CSS、Zustand
 - 图谱与图表：`@xyflow/react`、Dagre、Recharts
 - 接口：Hono，运行于 Cloudflare Workers
 - 静态资源：由 Worker Assets 托管，未知前端路由回退到单页应用
-- 部署配置：`wrangler.jsonc`，生产 Worker 路由为 `suan.longye.site/*`
+- 部署配置：`wrangler.jsonc` 顶层使用独立的 `suan-starter` 并可部署到 `*.workers.dev`，项目生产环境才使用 `suan` 与 `env.production` 中的 `suan.longye.site/*`
+
+## 一键部署到 Cloudflare
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Erchoc/suan)
+
+点击按钮后，Cloudflare 会将本项目复制到你的 GitHub 或 GitLab 账号，创建 Worker，并配置 Workers Builds。部署页会读取 `.env.example` 中声明的配置；`API_KEY` 会作为加密的 Worker Secret 保存，不会写入仓库。
+
+默认部署到你自己 Cloudflare 账号下的独立 `*.workers.dev` 地址，不会占用本项目的生产域名。需要提前准备：
+
+- Cloudflare 账号
+- GitHub 或 GitLab 账号
+- DeepSeek API Key
 
 ## 本地开发
 
-环境要求：Node.js 22.13.0 或更高版本、pnpm 10.12.4。
+环境要求：Node.js 22.13.0 或更高版本、直接安装的 pnpm 10.12.4。项目不依赖 Corepack。
 
 ```bash
 pnpm install
-cp .dev.vars.example .dev.vars
-# 编辑 .dev.vars，填入本地开发使用的 AI_API_KEY
+cp .env.example .env
+# 编辑 .env，至少把 API_KEY 换成可用密钥
 pnpm dev
 ```
+
+`.env` 字段如下：
+
+| 字段 | 示例默认值 | 说明 |
+| --- | --- | --- |
+| `BASE_URL` | `https://api.deepseek.com` | 供应商 API 根地址，不要直接写具体 completion endpoint |
+| `API_KEY` | 无有效默认值 | 必填密钥；不支持拼成 `APIKEY` |
+| `MODEL` | `deepseek-v4-flash` | 供应商实际模型标识 |
+| `AI_PROTOCOL` | `openai-chat` | 可选 `openai-chat`、`openai-coding`、`anthropic` |
+
+使用 Anthropic 原生接口时可将 `BASE_URL` 设为 `https://api.anthropic.com`；使用 DeepSeek 的 Anthropic 兼容接口时设为 `https://api.deepseek.com/anthropic`。Worker 会安全补齐对应 endpoint。
 
 开发地址以终端输出为准。`pnpm dev` 会同时提供 React 页面和 Hono Worker 接口，不需要单独启动接口进程。
 
@@ -78,7 +102,7 @@ curl http://localhost:5173/api/health
 
 ### `POST /api/ai/chat`
 
-接收知识点上下文与 `user`、`assistant` 消息，Worker 在服务端生成系统提示词，再调用 DeepSeek OpenAI 兼容接口，并将上游 SSE 数据流返回浏览器。
+接收知识点上下文与 `user`、`assistant` 消息，Worker 在服务端生成系统提示词，再按 `AI_PROTOCOL` 调用 Chat Completions、Responses 或 Anthropic Messages 上游，并将 SSE 数据流统一为前端现有契约。
 
 请求头必须包含：
 
@@ -101,10 +125,12 @@ curl http://localhost:5173/api/health
 
 ## 安全边界
 
-- 生产环境的 `AI_API_KEY` 只保存为 Cloudflare Worker Secret，只能由 Worker 读取。
-- 本地开发使用已被 Git 忽略的 `.dev.vars` 模拟同名 Secret；不要提交该文件。
-- 浏览器只请求同源 `/api/ai/chat`，不得直接调用 DeepSeek，也不得在前端代码、公开环境变量、构建产物或日志中放入密钥。
-- `AI_BASE_URL` 与 `AI_MODEL` 是非敏感配置，当前在 `wrangler.jsonc` 中分别指向 DeepSeek 兼容地址和 `deepseek-chat`。
+- 生产环境的 `API_KEY` 只保存为 Cloudflare Worker Secret，只能由 Worker 读取。
+- 本地开发使用已被 Git 忽略的 `.env`；不要提交该文件，也不要把密钥放进 Wrangler vars。
+- 浏览器只请求同源 `/api/ai/chat`，不得直接调用配置的 AI 上游，也不得在前端代码、公开环境变量、构建产物或日志中放入密钥。
+- 环境字段统一为 `BASE_URL`、`API_KEY`、`MODEL` 和 `AI_PROTOCOL`，不兼容 `APIKEY` 或旧的 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL` 字段。
+- `.env.example` 默认使用 `https://api.deepseek.com` 与 `deepseek-v4-flash`。[DeepSeek 当前官方模型列表](https://api-docs.deepseek.com/api/list-models)中的 Flash 型号是 V4；不存在可用的 `deepseek-v3-flash` API 标识。
+- `AI_PROTOCOL` 支持 `openai-chat`、`openai-coding`、`anthropic`，默认 `openai-chat`。前者使用 Chat Completions，`openai-coding` 使用 Responses，`anthropic` 使用 Messages；Worker 会把不同上游流统一为浏览器现有的 SSE 契约。
 - 同源校验和请求限流不等同于用户身份认证；未来新增管理接口时必须另行实现服务端鉴权。
 
 ## 常用命令
@@ -117,14 +143,19 @@ curl http://localhost:5173/api/health
 | `pnpm build`            | 类型检查并构建生产产物                       |
 | `pnpm preview`          | 构建并预览生产产物                           |
 | `pnpm typecheck`        | 检查 TypeScript 类型                         |
-| `pnpm lint`             | 运行 ESLint                                  |
+| `pnpm format`           | 使用 Biome 格式化代码                        |
+| `pnpm lint`             | 运行 Biome lint                              |
 | `pnpm test`             | 运行全部 Vitest 测试                         |
+| `pnpm test:coverage`    | 运行核心业务测试并输出覆盖率                 |
 | `pnpm test:watch`       | 监听模式运行测试                             |
-| `pnpm check`            | 依次检查绑定类型、类型、代码规范、测试和构建 |
+| `pnpm run ci`           | 运行绑定、Biome、类型、覆盖率和构建门禁      |
+| `pnpm check`            | 与 `pnpm run ci` 相同的本地完整检查入口      |
 | `pnpm cf-typegen`       | 按 Worker 配置重新生成绑定类型               |
 | `pnpm cf-typegen:check` | 检查绑定类型是否最新                         |
-| `pnpm run deploy:dry`   | 构建并执行发布预检                           |
-| `pnpm run deploy`       | 构建并发布到 Cloudflare Workers              |
+| `pnpm run deploy:dry`   | 构建并预检默认的可移植部署                   |
+| `pnpm run deploy`       | 构建并发布默认的 `workers.dev` 版本          |
+| `pnpm run deploy:production:dry` | 预检项目维护者的生产版本            |
+| `pnpm run deploy:production` | 构建并发布到 `suan.longye.site`          |
 
 题库维护脚本也从根目录运行：`pnpm gen:questions`、`pnpm gen:cards`、`pnpm gen:fill`、`pnpm gen:choice`、`pnpm gen:half`、`pnpm gen:auto`、`pnpm gen:dry`、`pnpm validate:questions`、`pnpm check:questions`、`pnpm check:grade`、`pnpm check:kp`、`pnpm check:dry`。
 
@@ -136,18 +167,20 @@ curl http://localhost:5173/api/health
 pnpm check
 ```
 
-首次发布前登录 Cloudflare。对于尚不存在的 Worker，Wrangler 无法预先执行 `secret put`，应直接用已忽略提交的 `.dev.vars` 原子创建 Worker 与 Secret：
+项目使用 Istanbul 统计显式列出的核心业务模块，并在 CI 中执行全局覆盖率门禁：语句 90%、分支 80%、函数 90%、行 90%。`vitest.config.ts` 还为每个核心文件设置了独立底线，避免高覆盖文件掩盖低覆盖模块。修复核心逻辑缺陷或增加核心业务模块时，应同步补充单测并把新模块纳入统计，不能通过缩小 coverage include 规避门槛。
+
+项目维护者首次发布前登录 Cloudflare，并用已忽略提交的 `.env` 原子创建生产 Worker 与配置：
 
 ```bash
 pnpm exec wrangler login
-pnpm run deploy:dry
-pnpm build
-pnpm exec wrangler deploy --secrets-file .dev.vars
+pnpm run deploy:production:dry
+CLOUDFLARE_ENV=production pnpm build
+CLOUDFLARE_ENV=production pnpm exec wrangler deploy --secrets-file .env
 ```
 
-Worker 已存在后，轮换密钥使用 `pnpm exec wrangler secret put AI_API_KEY`；常规发布使用 `pnpm run deploy`。
+Worker 已存在后，使用 `pnpm exec wrangler secret bulk .env --env production` 原子更新四个字段；常规生产发布使用 `pnpm run deploy:production`。
 
-仓库包含中文 CI 与 Cloudflare 部署工作流。自动发布默认关闭；为仓库配置具备 Workers Scripts 与 Workers Routes 权限的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` 两项机密，再把仓库变量 `CLOUDFLARE_DEPLOY_ENABLED` 设为 `true`，`main` 推送才会自动发布。也可以在 GitHub Actions 中手动触发部署。
+仓库包含 CI 与 Cloudflare 部署工作流。自动发布默认关闭；为仓库配置具备 Workers Scripts 与 Workers Routes 权限的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` 两项机密，再把仓库变量 `CLOUDFLARE_DEPLOY_ENABLED` 设为 `true`，`main` 推送或手动触发才会发布。Cloudflare 一键部署创建的项目已使用 Workers Builds，无需再启用这套 GitHub 部署工作流。
 
 发布完成后验证：
 

@@ -1,5 +1,5 @@
-import graphData from './knowledge-graph.json';
 import type { KnowledgePoint } from '../types';
+import graphData from './knowledge-graph.json';
 
 export interface KPWithContext extends KnowledgePoint {
   gradeId: string;
@@ -14,7 +14,7 @@ export interface KPWithContext extends KnowledgePoint {
   gradeNum: number;
 }
 
-// 构建主索引
+// Build the primary index.
 export const kpMap = new Map<string, KPWithContext>();
 
 graphData.grades.forEach((grade, gi) => {
@@ -39,13 +39,13 @@ graphData.grades.forEach((grade, gi) => {
   });
 });
 
-// 桥头堡集合：kp id → BridgeGroup label
+// Map each bridge knowledge point ID to its BridgeGroup label.
 export const bridgeMap = new Map<string, string>();
 graphData.meta.bridgePoints.groups.forEach(group => {
   group.kpIds.forEach(id => bridgeMap.set(id, group.label));
 });
 
-// 工具函数：获取某知识点的完整依赖链（BFS，从当前节点往前追溯所有前置）
+// Return the full dependency chain by traversing prerequisites with BFS.
 export function getFullDepsChain(kpId: string): KPWithContext[] {
   const visited = new Set<string>();
   const queue = [kpId];
@@ -64,7 +64,7 @@ export function getFullDepsChain(kpId: string): KPWithContext[] {
   return result;
 }
 
-// 工具函数：获取哪些知识点依赖了某知识点（反向查找）
+// Return every knowledge point that directly depends on the given point.
 export function getDependents(kpId: string): KPWithContext[] {
   const result: KPWithContext[] = [];
   kpMap.forEach(kp => {
@@ -75,7 +75,7 @@ export function getDependents(kpId: string): KPWithContext[] {
   return result;
 }
 
-// 工具函数：获取某年级+学期范围内的所有知识点（含历史年级）
+// Return all knowledge points through a grade and semester, including prior grades.
 export function getKPsUpTo(gradeNum: number, semester: '上' | '下'): KPWithContext[] {
   const result: KPWithContext[] = [];
   kpMap.forEach(kp => {

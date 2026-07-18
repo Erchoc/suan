@@ -1,5 +1,5 @@
+import { type HTMLMotionProps, motion } from 'framer-motion';
 import { forwardRef } from 'react';
-import { motion, type HTMLMotionProps } from 'framer-motion';
 
 interface ButtonProps extends HTMLMotionProps<'button'> {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -7,10 +7,10 @@ interface ButtonProps extends HTMLMotionProps<'button'> {
 }
 
 const variantClasses = {
-  primary:   'bg-accent text-bg font-semibold hover:bg-amber-400',
+  primary: 'bg-accent text-bg font-semibold hover:bg-amber-400',
   secondary: 'bg-surface2 text-text border border-border hover:border-accent hover:text-accent',
-  ghost:     'text-text-dim hover:text-text hover:bg-surface2',
-  danger:    'bg-accent2 text-white hover:bg-red-500',
+  ghost: 'text-text-dim hover:text-text hover:bg-surface2',
+  danger: 'bg-accent2 text-white hover:bg-red-500',
 };
 
 const sizeClasses = {
@@ -35,7 +35,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {children}
       </motion.button>
     );
-  }
+  },
 );
 
 Button.displayName = 'Button';

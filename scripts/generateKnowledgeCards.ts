@@ -1,17 +1,18 @@
 // scripts/generateKnowledgeCards.ts
 /**
- * 批量为知识点生成知识卡（explanation + faqs）
+ * Generates knowledge cards (explanation + FAQs) for knowledge points in bulk.
  *
- * 用法：
- *   pnpm run gen:cards              # 生成全部未生成的知识点
- *   pnpm run gen:cards --grade 5    # 只生成五年级
- *   pnpm run gen:cards --kp 5-18   # 只生成指定知识点
- *   pnpm run gen:cards --dry-run   # 仅打印 Prompt，不调用 API
+ * Usage:
+ *   pnpm run gen:cards              # Generate every missing knowledge card.
+ *   pnpm run gen:cards --grade 5    # Generate cards for grade 5 only.
+ *   pnpm run gen:cards --kp 5-18    # Generate a card for one knowledge point.
+ *   pnpm run gen:cards --dry-run    # Print the prompt without calling the API.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readAIConfig, requestAIText } from './aiText.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -54,24 +55,30 @@ function isKPRaw(value: unknown): value is KPRaw {
 }
 
 function isUnitRaw(value: unknown): value is UnitRaw {
-  return isJsonObject(value) &&
+  return (
+    isJsonObject(value) &&
     typeof value.semester === 'string' &&
     Array.isArray(value.kps) &&
-    value.kps.every(isKPRaw);
+    value.kps.every(isKPRaw)
+  );
 }
 
 function isDomainRaw(value: unknown): value is DomainRaw {
-  return isJsonObject(value) &&
+  return (
+    isJsonObject(value) &&
     typeof value.name === 'string' &&
     Array.isArray(value.units) &&
-    value.units.every(isUnitRaw);
+    value.units.every(isUnitRaw)
+  );
 }
 
 function isGradeRaw(value: unknown): value is GradeRaw {
-  return isJsonObject(value) &&
+  return (
+    isJsonObject(value) &&
     typeof value.name === 'string' &&
     Array.isArray(value.domains) &&
-    value.domains.every(isDomainRaw);
+    value.domains.every(isDomainRaw)
+  );
 }
 
 function isGraphData(value: unknown): value is GraphData {
@@ -80,30 +87,30 @@ function isGraphData(value: unknown): value is GraphData {
 
 function parseJsonObjectArray(source: string, label: string): JsonObject[] {
   const parsed: unknown = JSON.parse(source);
-  if (!Array.isArray(parsed)) throw new Error(`${label} 必须是 JSON 数组`);
+  if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON array`);
 
   const items: unknown[] = parsed;
-  if (!items.every(isJsonObject)) throw new Error(`${label} 数组元素必须是对象`);
+  if (!items.every(isJsonObject)) throw new Error(`${label} entries must be objects`);
   return items;
 }
 
-// ─── CLI 参数解析 ────────────────────────────────────────────────────────────
+// CLI argument parsing
 const args = process.argv.slice(2);
 const gradeFilter = args.includes('--grade') ? Number(args[args.indexOf('--grade') + 1]) : null;
-const kpFilter    = args.includes('--kp')    ? args[args.indexOf('--kp') + 1]            : null;
-const dryRun      = args.includes('--dry-run');
+const kpFilter = args.includes('--kp') ? args[args.indexOf('--kp') + 1] : null;
+const dryRun = args.includes('--dry-run');
 
-// ─── 数据加载 ────────────────────────────────────────────────────────────────
+// Data loading
 const graphValue: unknown = JSON.parse(fs.readFileSync(GRAPH_PATH, 'utf-8'));
-if (!isGraphData(graphValue)) throw new Error('知识图谱数据格式无效');
+if (!isGraphData(graphValue)) throw new Error('Invalid knowledge graph data');
 const graph = graphValue;
 
 const existingCards: JsonObject[] = fs.existsSync(CARDS_PATH)
-  ? parseJsonObjectArray(fs.readFileSync(CARDS_PATH, 'utf-8'), '知识卡数据')
+  ? parseJsonObjectArray(fs.readFileSync(CARDS_PATH, 'utf-8'), 'Knowledge card data')
   : [];
 const existingKpIds = new Set(existingCards.map(card => card.kp_id));
 
-// ─── 收集目标知识点 ──────────────────────────────────────────────────────────
+// Collect target knowledge points
 interface TargetKP {
   id: string;
   name: string;
@@ -121,7 +128,7 @@ graph.grades.forEach((grade, gi) => {
     domain.units.forEach(unit => {
       unit.kps.forEach(kp => {
         if (kpFilter && kp.id !== kpFilter) return;
-        if (existingKpIds.has(kp.id)) return; // 断点续跑：跳过已生成的
+        if (existingKpIds.has(kp.id)) return; // Skip generated cards when resuming.
         targets.push({
           id: kp.id,
           name: kp.name,
@@ -135,13 +142,15 @@ graph.grades.forEach((grade, gi) => {
   });
 });
 
-console.log(`目标知识点：${targets.length} 个（已跳过 ${existingKpIds.size} 个已有记录）\n`);
+console.log(
+  `Target knowledge points: ${targets.length} (${existingKpIds.size} existing records skipped)\n`,
+);
 if (targets.length === 0) {
-  console.log('没有需要生成的知识点，退出。');
+  console.log('No knowledge cards need to be generated.');
   process.exit(0);
 }
 
-// ─── Prompt 构造 ─────────────────────────────────────────────────────────────
+// Prompt construction
 function buildPrompt(kp: TargetKP): string {
   return `你是一位经验丰富的小学数学老师，擅长用简单易懂的语言讲解数学概念。
 
@@ -175,37 +184,22 @@ function buildPrompt(kp: TargetKP): string {
 }`;
 }
 
-// ─── API 调用 ────────────────────────────────────────────────────────────────
-const AI_BASE_URL = process.env.AI_BASE_URL ?? 'https://api.openai.com/v1';
-const AI_API_KEY  = process.env.AI_API_KEY  ?? '';
-const AI_MODEL    = process.env.AI_MODEL    ?? 'gpt-4o-mini';
-
-async function callAI(prompt: string): Promise<string> {
-  const res = await fetch(`${AI_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${AI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: AI_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7,
-    }),
-  });
-  if (!res.ok) throw new Error(`API 请求失败：${res.status} ${await res.text()}`);
-  const json: unknown = await res.json();
-  if (!isJsonObject(json) || !Array.isArray(json.choices)) {
-    throw new Error('API 返回格式无效：缺少 choices 数组');
-  }
-  const firstChoice: unknown = json.choices[0];
-  if (!isJsonObject(firstChoice) || !isJsonObject(firstChoice.message) || typeof firstChoice.message.content !== 'string') {
-    throw new Error('API 返回格式无效：缺少消息内容');
-  }
-  return firstChoice.message.content;
+// AI configuration
+const AI_CONFIG = readAIConfig(process.env);
+if (!dryRun && !AI_CONFIG.apiKey) {
+  console.error('Set the API_KEY environment variable');
+  process.exit(1);
 }
 
-// ─── 主循环 ─────────────────────────────────────────────────────────────────
+async function callAI(prompt: string): Promise<string> {
+  return requestAIText({
+    config: AI_CONFIG,
+    prompt,
+    temperature: 0.7,
+  });
+}
+
+// Main loop
 const cards = [...existingCards];
 
 for (let i = 0; i < targets.length; i++) {
@@ -224,18 +218,18 @@ for (let i = 0; i < targets.length; i++) {
   try {
     const raw = await callAI(prompt);
 
-    // 提取 JSON（防止 AI 多输出文字）
+    // Extract JSON even if the model adds surrounding text.
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error(`返回内容无法解析为 JSON：${raw.slice(0, 200)}`);
+    if (!jsonMatch) throw new Error(`Response cannot be parsed as JSON: ${raw.slice(0, 200)}`);
 
     const parsed: unknown = JSON.parse(jsonMatch[0]);
 
-    // 字段校验
+    // Validate fields.
     if (!isJsonObject(parsed) || !parsed.explanation || typeof parsed.explanation !== 'string') {
-      throw new Error('explanation 字段缺失或非字符串');
+      throw new Error('explanation is missing or is not a string');
     }
     if (!Array.isArray(parsed.faqs) || parsed.faqs.length < 2) {
-      throw new Error('faqs 字段缺失或少于 2 条');
+      throw new Error('faqs is missing or has fewer than two entries');
     }
 
     const card = {
@@ -245,25 +239,25 @@ for (let i = 0; i < targets.length; i++) {
       textbook_ref: undefined as string | undefined,
       meta: {
         generated_at: new Date().toISOString(),
-        model: AI_MODEL,
+        model: AI_CONFIG.model,
         reviewed: false,
       },
     };
 
     cards.push(card);
     fs.writeFileSync(CARDS_PATH, JSON.stringify(cards, null, 2), 'utf-8');
-    console.log(`  已生成并写入\n`);
+    console.log('  Generated and saved\n');
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     const msg = `[${kp.id}] ${kp.name}: ${errorMessage}`;
-    console.error(`  失败：${msg}\n`);
+    console.error(`  Failed: ${msg}\n`);
     fs.appendFileSync(ERROR_LOG, `${new Date().toISOString()} ${msg}\n`);
   }
 }
 
 if (!dryRun) {
-  console.log(`\n完成！共生成 ${cards.length - existingCards.length} 张知识卡。`);
+  console.log(`\nDone. Generated ${cards.length - existingCards.length} knowledge cards.`);
   if (fs.existsSync(ERROR_LOG)) {
-    console.log(`失败记录见：${ERROR_LOG}`);
+    console.log(`Failure log: ${ERROR_LOG}`);
   }
 }

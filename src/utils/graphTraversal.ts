@@ -1,15 +1,15 @@
-import { kpMap } from '../data/kpIndex';
 import type { KPWithContext } from '../data/kpIndex';
+import { kpMap } from '../data/kpIndex';
 
 /**
- * BFS 获取从 startId 开始可达的所有后续知识点（正向遍历）
+ * Returns every downstream knowledge point reachable from startId using BFS.
  */
 export function getReachable(startId: string): KPWithContext[] {
   const visited = new Set<string>();
   const queue = [startId];
   const result: KPWithContext[] = [];
 
-  // 构建反向索引：dep → 依赖它的 kp 列表
+  // Build a reverse index from each dependency to the knowledge points that depend on it.
   const reverseMap = new Map<string, string[]>();
   kpMap.forEach(kp => {
     kp.deps.forEach(dep => {
@@ -33,7 +33,7 @@ export function getReachable(startId: string): KPWithContext[] {
 }
 
 /**
- * 找出两个知识点之间的学习路径（最短路径，BFS）
+ * Finds the shortest learning path between two knowledge points using BFS.
  */
 export function findPath(fromId: string, toId: string): KPWithContext[] {
   const visited = new Set<string>();
@@ -48,7 +48,7 @@ export function findPath(fromId: string, toId: string): KPWithContext[] {
       return path.map(pid => kpMap.get(pid)!).filter(Boolean);
     }
 
-    // 反向索引：当前节点的后继（依赖当前节点的知识点）
+    // Find successors that list the current node as a dependency.
     kpMap.forEach(kp => {
       if (kp.deps.includes(id) && !visited.has(kp.id)) {
         queue.push({ id: kp.id, path: [...path, kp.id] });

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <!-- PWA & Mobile -->
+    <!-- PWA and mobile metadata -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -12,13 +12,13 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="description" content="小学数学知识图谱与智能诊断平台" />
     <script>
-      // 在浏览器绘制首帧前同步主题，避免 iOS Safari 先采用错误的系统栏颜色。
-      (function() {
+      // Synchronize the theme before the first paint so Safari samples the correct color.
+      (() => {
         var theme = 'light';
         try {
           theme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
         } catch (_) {
-          // 隐私模式或存储不可用时安全回退到默认亮色。
+          // Fall back to the light theme when storage is unavailable.
         }
         var color = theme === 'dark' ? '#0f0e17' : '#faf8f3';
         var root = document.documentElement;

@@ -1,11 +1,11 @@
 // src/components/Mascot/index.tsx
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
 export type MascotState = 'idle' | 'speaking' | 'correct' | 'wrong';
 
 interface MascotProps {
   state: MascotState;
-  bubble?: string;  // 气泡文字，undefined 时不显示气泡
+  bubble?: string; // Bubble text; undefined hides the bubble.
 }
 
 const MASCOT_EMOJI: Record<MascotState, string> = {
@@ -18,7 +18,7 @@ const MASCOT_EMOJI: Record<MascotState, string> = {
 export default function Mascot({ state, bubble }: MascotProps) {
   return (
     <div className="fixed bottom-24 right-4 z-40 flex flex-col items-end gap-2 pointer-events-none">
-      {/* 气泡 */}
+      {/* Speech bubble */}
       <AnimatePresence>
         {bubble && (
           <motion.div
@@ -34,7 +34,7 @@ export default function Mascot({ state, bubble }: MascotProps) {
         )}
       </AnimatePresence>
 
-      {/* 吉祥物图标 */}
+      {/* Mascot icon */}
       <motion.div
         animate={state === 'speaking' ? { rotate: [0, -5, 5, -5, 0] } : { rotate: 0 }}
         transition={{ duration: 0.5, repeat: state === 'speaking' ? Infinity : 0, repeatDelay: 1 }}

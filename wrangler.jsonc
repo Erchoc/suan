@@ -1,23 +1,13 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "suan",
+  "name": "suan-starter",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-07-18",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
-  "preview_urls": false,
-  "routes": [
-    {
-      "pattern": "suan.longye.site/*",
-      "zone_name": "longye.site"
-    }
-  ],
-  "vars": {
-    "AI_BASE_URL": "https://api.deepseek.com",
-    "AI_MODEL": "deepseek-chat"
-  },
+  "workers_dev": true,
+  "preview_urls": true,
   "secrets": {
-    "required": ["AI_API_KEY"]
+    "required": ["BASE_URL", "API_KEY", "MODEL", "AI_PROTOCOL"]
   },
   "ratelimits": [
     {
@@ -43,6 +33,32 @@
     "traces": {
       "enabled": true,
       "head_sampling_rate": 0.01
+    }
+  },
+  "env": {
+    "production": {
+      "name": "suan",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [
+        {
+          "pattern": "suan.longye.site/*",
+          "zone_name": "longye.site"
+        }
+      ],
+      "secrets": {
+        "required": ["BASE_URL", "API_KEY", "MODEL", "AI_PROTOCOL"]
+      },
+      "ratelimits": [
+        {
+          "name": "AI_RATE_LIMITER",
+          "namespace_id": "20260719",
+          "simple": {
+            "limit": 12,
+            "period": 60
+          }
+        }
+      ]
     }
   }
 }

@@ -1,10 +1,11 @@
 // src/components/AIChatDrawer/index.tsx
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { MessageSquareText, X, Send } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+
+import { AnimatePresence, motion } from 'framer-motion';
+import { MessageSquareText, Send, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ChatMessage as IChatMessage, streamChat } from '../../utils/aiChat';
 import ChatMessage from './ChatMessage';
 import VoiceModeButton from './VoiceModeButton';
-import { streamChat, type ChatMessage as IChatMessage } from '../../utils/aiChat';
 
 interface AIChatDrawerProps {
   kpId: string;
@@ -30,7 +31,8 @@ export default function AIChatDrawer({ kpId, kpName, gradeNum, explanation }: AI
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamingIndexRef = useRef<number>(-1);
 
-  // 切换知识点时：先中断旧请求，再重置对话
+  // Abort the previous request before resetting the conversation for a new knowledge point.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The knowledge-point ID intentionally resets same-name conversations.
   useEffect(() => {
     abortRef.current?.abort();
     setMessages([
@@ -46,7 +48,7 @@ export default function AIChatDrawer({ kpId, kpName, gradeNum, explanation }: AI
     };
   }, [kpId, kpName]);
 
-  // 关闭抽屉时中断流式请求
+  // Abort the streaming request when closing the drawer.
   const handleClose = useCallback(() => {
     abortRef.current?.abort();
     setOpen(false);
@@ -56,68 +58,77 @@ export default function AIChatDrawer({ kpId, kpName, gradeNum, explanation }: AI
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  const sendMessage = useCallback(async (text: string, retryMessages?: IChatMessage[]) => {
-    if (!text.trim() || loading) return;
-    setError(null);
+  const sendMessage = useCallback(
+    async (text: string, retryMessages?: IChatMessage[]) => {
+      if (!text.trim() || loading) return;
+      setError(null);
 
-    const userMsg: IChatMessage = { role: 'user', content: text };
-    const newMessages = retryMessages ?? [...messages, userMsg];
-    setMessages(newMessages);
-    setInput('');
-    setLoading(true);
+      const userMsg: IChatMessage = { role: 'user', content: text };
+      const newMessages = retryMessages ?? [...messages, userMsg];
+      setMessages(newMessages);
+      setInput('');
+      setLoading(true);
 
-    // 占位 assistant 消息（流式填充）
-    const assistantMsg: IChatMessage = { role: 'assistant', content: '' };
-    setMessages(prev => [...prev, assistantMsg]);
-    streamingIndexRef.current = newMessages.length;
+      // Append an assistant placeholder that will receive streamed content.
+      const assistantMsg: IChatMessage = { role: 'assistant', content: '' };
+      setMessages(prev => [...prev, assistantMsg]);
+      streamingIndexRef.current = newMessages.length;
 
-    abortRef.current = new AbortController();
+      abortRef.current = new AbortController();
 
-    await streamChat({
-      kpId,
-      kpName,
-      gradeNum,
-      explanation,
-      messages: newMessages,
-      signal: abortRef.current.signal,
-      onChunk: (delta) => {
-        setMessages(prev => {
-          const updated = [...prev];
-          const idx = streamingIndexRef.current;
-          if (updated[idx]) {
-            updated[idx] = { ...updated[idx], content: updated[idx].content + delta };
-          }
-          return updated;
-        });
-        scrollToBottom();
-      },
-      onDone: () => {
-        setLoading(false);
-        streamingIndexRef.current = -1;
-      },
-      onError: (err) => {
-        setLoading(false);
-        setError(err.message);
-        setMessages(prev => prev.filter((_, i) => i !== streamingIndexRef.current));
-        streamingIndexRef.current = -1;
-      },
-    });
-  }, [messages, loading, kpId, kpName, gradeNum, explanation, scrollToBottom]);
+      await streamChat({
+        kpId,
+        kpName,
+        gradeNum,
+        explanation,
+        messages: newMessages,
+        signal: abortRef.current.signal,
+        onChunk: delta => {
+          setMessages(prev => {
+            const updated = [...prev];
+            const idx = streamingIndexRef.current;
+            if (updated[idx]) {
+              updated[idx] = { ...updated[idx], content: updated[idx].content + delta };
+            }
+            return updated;
+          });
+          scrollToBottom();
+        },
+        onDone: () => {
+          setLoading(false);
+          streamingIndexRef.current = -1;
+        },
+        onError: err => {
+          setLoading(false);
+          setError(err.message);
+          setMessages(prev => prev.filter((_, i) => i !== streamingIndexRef.current));
+          streamingIndexRef.current = -1;
+        },
+      });
+    },
+    [messages, loading, kpId, kpName, gradeNum, explanation, scrollToBottom],
+  );
 
   return (
     <>
-      {/* 悬浮按钮 + 气泡（可拖拽） */}
+      {/* Draggable floating button and bubble */}
       <motion.div
         drag
         dragMomentum={false}
         dragElastic={0.1}
         dragConstraints={{ top: -500, bottom: 0, left: -300, right: 0 }}
-        onDragStart={() => { isDraggingRef.current = true; }}
-        onDragEnd={() => { setTimeout(() => { isDraggingRef.current = false; }, 50); }}
+        onDragStart={() => {
+          isDraggingRef.current = true;
+        }}
+        onDragEnd={() => {
+          setTimeout(() => {
+            isDraggingRef.current = false;
+          }, 50);
+        }}
         className="fixed right-5 z-40 flex flex-col items-end gap-2 cursor-grab active:cursor-grabbing"
         style={{ bottom: 'calc(var(--tab-bar-h) + 2rem)', touchAction: 'none' }}
       >
-        {/* 气泡提示 */}
+        {/* Prompt bubble */}
         <AnimatePresence>
           {bubbleVisible && !open && (
             <motion.div
@@ -133,7 +144,7 @@ export default function AIChatDrawer({ kpId, kpName, gradeNum, explanation }: AI
           )}
         </AnimatePresence>
 
-        {/* 按钮 */}
+        {/* Trigger button */}
         <button
           onClick={() => {
             if (!isDraggingRef.current) {
@@ -149,11 +160,11 @@ export default function AIChatDrawer({ kpId, kpName, gradeNum, explanation }: AI
         </button>
       </motion.div>
 
-      {/* 抽屉 */}
+      {/* Drawer */}
       <AnimatePresence>
         {open && (
           <>
-            {/* 背景遮罩 */}
+            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -162,7 +173,7 @@ export default function AIChatDrawer({ kpId, kpName, gradeNum, explanation }: AI
               onClick={handleClose}
             />
 
-            {/* 抽屉主体 */}
+            {/* Drawer panel */}
             <motion.div
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
@@ -178,13 +189,16 @@ export default function AIChatDrawer({ kpId, kpName, gradeNum, explanation }: AI
                 </div>
                 <div className="flex items-center gap-2">
                   <VoiceModeButton />
-                  <button onClick={handleClose} className="text-text-dim hover:text-text transition-colors">
+                  <button
+                    onClick={handleClose}
+                    className="text-text-dim hover:text-text transition-colors"
+                  >
                     <X size={18} />
                   </button>
                 </div>
               </div>
 
-              {/* 消息列表 */}
+              {/* Message list */}
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
                 {messages.map((msg, i) => (
                   <ChatMessage
@@ -215,7 +229,7 @@ export default function AIChatDrawer({ kpId, kpName, gradeNum, explanation }: AI
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* 输入框 */}
+              {/* Message input */}
               <div className="px-4 py-3 border-t border-border flex-shrink-0">
                 <div className="flex gap-2">
                   <input

@@ -1,18 +1,17 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BookOpen, Star, ListChecks, ChevronDown, ChevronRight, Search, X } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, ListChecks, Search, Star, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import Badge from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
+import { graphData } from '../../data/kpIndex';
+import { useQuestions } from '../../hooks/useQuestions';
 import { useExamStore } from '../../stores/examStore';
 import { useReviewStore } from '../../stores/reviewStore';
-import type { ReviewSession } from '../../types';
-import { useQuestions } from '../../hooks/useQuestions';
+import type { ExamSession, Question, ReviewSession, ReviewSource } from '../../types';
 import { judgeQuestion } from '../../utils/judgeAnswer';
-import { graphData } from '../../data/kpIndex';
-import Button from '../../components/ui/Button';
-import Badge from '../../components/ui/Badge';
-import type { ReviewSource, Question, ExamSession } from '../../types';
 
-// ─── 工具函数 ──────────────────────────────────────────────────────
+// Utilities.
 
 function getWrongQuestionIds(
   sessions: Record<string, ExamSession>,
@@ -40,17 +39,11 @@ function getBookmarkedQuestionIds(
   return ids;
 }
 
-// ─── 三态勾选框（支持 indeterminate）──────────────────────────────
+// Three-state checkbox with indeterminate support.
 
 type TriState = 'all' | 'some' | 'none';
 
-function TriCheckbox({
-  state,
-  onChange,
-}: {
-  state: TriState;
-  onChange: () => void;
-}) {
+function TriCheckbox({ state, onChange }: { state: TriState; onChange: () => void }) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.indeterminate = state === 'some';
@@ -73,7 +66,7 @@ function triState(kpIds: string[], sel: Set<string>): TriState {
   return 'some';
 }
 
-// ─── 多维度知识点选择器 ─────────────────────────────────────────────
+// Multi-dimensional knowledge point selector.
 
 interface KPSelectorProps {
   selectedKpIds: Set<string>;
@@ -127,18 +120,29 @@ function KPSelector({ selectedKpIds, onChange, kpQuestionCount, initialGrade }: 
       return next;
     });
 
-  // 搜索模式：跨年级显示匹配结果
+  // Search across grades and show every match.
   const searchResults = useMemo(() => {
     const q = query.toLowerCase().trim();
     if (!q) return null;
-    const results: { gradeName: string; gradeColor: string; domainName: string; unitName: string; kpId: string; kpName: string }[] = [];
+    const results: {
+      gradeName: string;
+      gradeColor: string;
+      domainName: string;
+      unitName: string;
+      kpId: string;
+      kpName: string;
+    }[] = [];
     graphData.grades.forEach(grade => {
       grade.domains.forEach(domain => {
         domain.units.forEach(unit => {
           unit.kps.forEach(kp => {
-            if ((kp.name.toLowerCase().includes(q) || kp.id.includes(q) ||
-                 unit.name.toLowerCase().includes(q) || domain.name.toLowerCase().includes(q)) &&
-                (kpQuestionCount.get(kp.id) ?? 0) > 0) {
+            if (
+              (kp.name.toLowerCase().includes(q) ||
+                kp.id.includes(q) ||
+                unit.name.toLowerCase().includes(q) ||
+                domain.name.toLowerCase().includes(q)) &&
+              (kpQuestionCount.get(kp.id) ?? 0) > 0
+            ) {
               results.push({
                 gradeName: grade.name,
                 gradeColor: grade.color,
@@ -158,28 +162,35 @@ function KPSelector({ selectedKpIds, onChange, kpQuestionCount, initialGrade }: 
   const currentGrade = graphData.grades[activeGrade - 1];
   const gradeColor = currentGrade?.color ?? '#ff8906';
 
-  // 当前年级已选题目数
+  // Selected question count for the current grade.
   const selectedCountInGrade = useMemo(() => {
     let count = 0;
     currentGrade?.domains.forEach(d =>
       d.units.forEach(u =>
-        u.kps.forEach(kp => { if (selectedKpIds.has(kp.id)) count += kpQuestionCount.get(kp.id) ?? 0; })
-      )
+        u.kps.forEach(kp => {
+          if (selectedKpIds.has(kp.id)) count += kpQuestionCount.get(kp.id) ?? 0;
+        }),
+      ),
     );
     return count;
   }, [currentGrade, selectedKpIds, kpQuestionCount]);
 
   const totalSelected = useMemo(() => {
     let count = 0;
-    selectedKpIds.forEach(id => { count += kpQuestionCount.get(id) ?? 0; });
+    selectedKpIds.forEach(id => {
+      count += kpQuestionCount.get(id) ?? 0;
+    });
     return count;
   }, [selectedKpIds, kpQuestionCount]);
 
   return (
     <div className="flex flex-col gap-3">
-      {/* 搜索框 */}
+      {/* Search field. */}
       <div className="relative">
-        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim/60 pointer-events-none" />
+        <Search
+          size={13}
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim/60 pointer-events-none"
+        />
         <input
           type="text"
           placeholder="搜索领域、单元或知识点..."
@@ -188,13 +199,16 @@ function KPSelector({ selectedKpIds, onChange, kpQuestionCount, initialGrade }: 
           className="w-full pl-8 pr-8 py-1.5 text-sm bg-surface2 border border-border rounded-lg text-text placeholder:text-text-dim/40 focus:outline-none focus:border-accent"
         />
         {query && (
-          <button onClick={() => setQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-dim/60 hover:text-text">
+          <button
+            onClick={() => setQuery('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-dim/60 hover:text-text"
+          >
             <X size={13} />
           </button>
         )}
       </div>
 
-      {/* 搜索结果 */}
+      {/* Search results. */}
       {searchResults ? (
         <div className="max-h-64 overflow-y-auto flex flex-col gap-0.5 pr-1">
           {searchResults.length === 0 ? (
@@ -204,11 +218,26 @@ function KPSelector({ selectedKpIds, onChange, kpQuestionCount, initialGrade }: 
               const checked = selectedKpIds.has(r.kpId);
               const count = kpQuestionCount.get(r.kpId) ?? 0;
               return (
-                <label key={r.kpId} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface2/60 cursor-pointer group">
-                  <input type="checkbox" checked={checked} onChange={() => toggleKP(r.kpId)} className="accent-accent flex-shrink-0 w-3.5 h-3.5" />
-                  <span className="text-sm flex-1 text-text-dim group-hover:text-text transition-colors">{r.kpName}</span>
-                  <span className="text-xs text-text-dim/50 hidden sm:block">{r.domainName} · {r.unitName}</span>
-                  <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ background: `${r.gradeColor}18`, color: r.gradeColor }}>
+                <label
+                  key={r.kpId}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface2/60 cursor-pointer group"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleKP(r.kpId)}
+                    className="accent-accent flex-shrink-0 w-3.5 h-3.5"
+                  />
+                  <span className="text-sm flex-1 text-text-dim group-hover:text-text transition-colors">
+                    {r.kpName}
+                  </span>
+                  <span className="text-xs text-text-dim/50 hidden sm:block">
+                    {r.domainName} · {r.unitName}
+                  </span>
+                  <span
+                    className="text-xs px-1.5 py-0.5 rounded font-medium"
+                    style={{ background: `${r.gradeColor}18`, color: r.gradeColor }}
+                  >
                     {r.gradeName.slice(0, 1)}
                   </span>
                   <span className="text-xs text-text-dim/50">{count}题</span>
@@ -219,11 +248,13 @@ function KPSelector({ selectedKpIds, onChange, kpQuestionCount, initialGrade }: 
         </div>
       ) : (
         <>
-          {/* 年级横向 Tabs */}
+          {/* Horizontal grade tabs. */}
           <div className="flex gap-1 overflow-x-auto pb-0.5 no-scrollbar">
             {graphData.grades.map((grade, gi) => {
               const gNum = gi + 1;
-              const gradeKpIds = grade.domains.flatMap(d => d.units.flatMap(u => u.kps.map(k => k.id)));
+              const gradeKpIds = grade.domains.flatMap(d =>
+                d.units.flatMap(u => u.kps.map(k => k.id)),
+              );
               const selCount = gradeKpIds.filter(id => selectedKpIds.has(id)).length;
               const active = activeGrade === gNum;
               return (
@@ -231,85 +262,113 @@ function KPSelector({ selectedKpIds, onChange, kpQuestionCount, initialGrade }: 
                   key={grade.id}
                   onClick={() => setActiveGrade(gNum)}
                   className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-                    active
-                      ? 'text-white'
-                      : 'bg-surface2 text-text-dim hover:text-text'
+                    active ? 'text-white' : 'bg-surface2 text-text-dim hover:text-text'
                   }`}
                   style={active ? { background: grade.color } : undefined}
                 >
                   {grade.name}
-                  {selCount > 0 && !active && (
-                    <span className="ml-1 opacity-70">·{selCount}</span>
-                  )}
+                  {selCount > 0 && !active && <span className="ml-1 opacity-70">·{selCount}</span>}
                 </button>
               );
             })}
           </div>
 
-          {/* 当前年级 Domain → Unit → KP 树 */}
+          {/* Current-grade domain-to-unit-to-knowledge-point tree. */}
           <div className="max-h-64 overflow-y-auto flex flex-col gap-0.5 pr-1">
             {currentGrade?.domains.map(domain => {
-              const domainKpIds = domain.units.flatMap(u => u.kps.map(k => k.id)).filter(id => (kpQuestionCount.get(id) ?? 0) > 0);
+              const domainKpIds = domain.units
+                .flatMap(u => u.kps.map(k => k.id))
+                .filter(id => (kpQuestionCount.get(id) ?? 0) > 0);
               if (domainKpIds.length === 0) return null;
               const domainState = triState(domainKpIds, selectedKpIds);
               const domainOpen = openDomains.has(domain.id);
-              const domainCount = domainKpIds.reduce((s, id) => s + (kpQuestionCount.get(id) ?? 0), 0);
+              const domainCount = domainKpIds.reduce(
+                (s, id) => s + (kpQuestionCount.get(id) ?? 0),
+                0,
+              );
 
               return (
                 <div key={domain.id}>
-                  {/* 领域行 */}
+                  {/* Domain row. */}
                   <div className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-surface2/60 group">
                     <TriCheckbox state={domainState} onChange={() => toggleDomain(domainKpIds)} />
                     <button
                       onClick={() => toggleDomainOpen(domain.id)}
                       className="flex-1 flex items-center gap-1.5 text-left"
                     >
-                      <span className="text-sm font-medium text-text">{domain.icon} {domain.name}</span>
+                      <span className="text-sm font-medium text-text">
+                        {domain.icon} {domain.name}
+                      </span>
                       <span className="text-xs text-text-dim/50 ml-auto">{domainCount}题</span>
-                      <span className="text-text-dim/50">{domainOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
+                      <span className="text-text-dim/50">
+                        {domainOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      </span>
                     </button>
                   </div>
 
-                  {/* 单元列表 */}
+                  {/* Unit list. */}
                   {domainOpen && (
                     <div className="pl-5 flex flex-col gap-0.5">
                       {domain.units.map(unit => {
-                        const unitKpIds = unit.kps.map(k => k.id).filter(id => (kpQuestionCount.get(id) ?? 0) > 0);
+                        const unitKpIds = unit.kps
+                          .map(k => k.id)
+                          .filter(id => (kpQuestionCount.get(id) ?? 0) > 0);
                         if (unitKpIds.length === 0) return null;
                         const unitState = triState(unitKpIds, selectedKpIds);
                         const unitOpen = openUnits.has(unit.id);
-                        const unitCount = unitKpIds.reduce((s, id) => s + (kpQuestionCount.get(id) ?? 0), 0);
+                        const unitCount = unitKpIds.reduce(
+                          (s, id) => s + (kpQuestionCount.get(id) ?? 0),
+                          0,
+                        );
 
                         return (
                           <div key={unit.id}>
-                            {/* 单元行 */}
+                            {/* Unit row. */}
                             <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface2/60 group">
-                              <TriCheckbox state={unitState} onChange={() => toggleUnit(unitKpIds)} />
+                              <TriCheckbox
+                                state={unitState}
+                                onChange={() => toggleUnit(unitKpIds)}
+                              />
                               <button
                                 onClick={() => toggleUnitOpen(unit.id)}
                                 className="flex-1 flex items-center gap-1.5 text-left"
                               >
-                                <span className="text-sm text-text-dim group-hover:text-text transition-colors">{unit.name}</span>
-                                <span className="text-xs text-text-dim/40 ml-auto">{unitCount}题</span>
-                                <span className="text-text-dim/40">{unitOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+                                <span className="text-sm text-text-dim group-hover:text-text transition-colors">
+                                  {unit.name}
+                                </span>
+                                <span className="text-xs text-text-dim/40 ml-auto">
+                                  {unitCount}题
+                                </span>
+                                <span className="text-text-dim/40">
+                                  {unitOpen ? (
+                                    <ChevronDown size={12} />
+                                  ) : (
+                                    <ChevronRight size={12} />
+                                  )}
+                                </span>
                               </button>
                             </div>
 
-                            {/* 知识点列表 */}
+                            {/* Knowledge point list. */}
                             {unitOpen && (
                               <div className="pl-5 flex flex-col gap-0.5">
                                 {unit.kps.map(kp => {
                                   const count = kpQuestionCount.get(kp.id) ?? 0;
                                   if (count === 0) return null;
                                   return (
-                                    <label key={kp.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface2/60 cursor-pointer group">
+                                    <label
+                                      key={kp.id}
+                                      className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface2/60 cursor-pointer group"
+                                    >
                                       <input
                                         type="checkbox"
                                         checked={selectedKpIds.has(kp.id)}
                                         onChange={() => toggleKP(kp.id)}
                                         className="accent-accent flex-shrink-0 w-3.5 h-3.5"
                                       />
-                                      <span className="text-xs flex-1 text-text-dim group-hover:text-text transition-colors">{kp.name}</span>
+                                      <span className="text-xs flex-1 text-text-dim group-hover:text-text transition-colors">
+                                        {kp.name}
+                                      </span>
                                       <span className="text-xs text-text-dim/40">{count}题</span>
                                     </label>
                                   );
@@ -328,7 +387,7 @@ function KPSelector({ selectedKpIds, onChange, kpQuestionCount, initialGrade }: 
         </>
       )}
 
-      {/* 已选统计 */}
+      {/* Selection summary. */}
       {selectedKpIds.size > 0 && (
         <div className="flex items-center justify-between text-xs text-text-dim/70">
           <span>
@@ -350,7 +409,7 @@ function KPSelector({ selectedKpIds, onChange, kpQuestionCount, initialGrade }: 
   );
 }
 
-// ─── 主页面 ─────────────────────────────────────────────────────────
+// Main page.
 
 export default function ReviewEntry() {
   const navigate = useNavigate();
@@ -359,23 +418,21 @@ export default function ReviewEntry() {
   const { sessions: reviewSessions, createSession } = useReviewStore();
   const { questions: allQuestions, loading } = useQuestions();
 
-  const preKp      = searchParams.get('kp');
+  const preKp = searchParams.get('kp');
   const preSession = searchParams.get('session');
 
-  const [wrongSessionIds, setWrongSessionIds] = useState<string[]>(
-    preSession ? [preSession] : [],
-  );
+  const [wrongSessionIds, setWrongSessionIds] = useState<string[]>(preSession ? [preSession] : []);
   const [includeAllWrong, setIncludeAllWrong] = useState(false);
   const [includeBookmarks, setIncludeBookmarks] = useState(false);
   const [selectedKpIds, setSelectedKpIds] = useState<Set<string>>(
     preKp ? new Set([preKp]) : new Set(),
   );
 
-  // 从 ?kp= 推断初始年级 tab（如 "1-3" → 一年级）
+  // Infer the initial grade tab from ?kp=, for example "1-3" selects grade 1.
   const initialGrade = useMemo(() => {
     if (!preKp) return 1;
     const m = preKp.match(/^(\d+)-/);
-    if (m) return Math.min(6, Math.max(1, parseInt(m[1])));
+    if (m) return Math.min(6, Math.max(1, parseInt(m[1], 10)));
     return 1;
   }, [preKp]);
 
@@ -396,7 +453,10 @@ export default function ReviewEntry() {
       ids.forEach(id => {
         if (!seenIds.has(id)) {
           const q = qMap.get(id);
-          if (q) { seenIds.add(id); merged.push(q); }
+          if (q) {
+            seenIds.add(id);
+            merged.push(q);
+          }
         }
       });
     };
@@ -407,7 +467,9 @@ export default function ReviewEntry() {
     if (includeBookmarks) add(getBookmarkedQuestionIds(examSessions, reviewSessions));
     if (selectedKpIds.size > 0) {
       const kpQIds = new Set<string>();
-      allQuestions.forEach(q => { if (selectedKpIds.has(q.kp_id)) kpQIds.add(q.id); });
+      allQuestions.forEach(q => {
+        if (selectedKpIds.has(q.kp_id)) kpQIds.add(q.id);
+      });
       add(kpQIds);
     }
     return merged;
@@ -433,7 +495,11 @@ export default function ReviewEntry() {
   };
 
   if (loading) {
-    return <div className="min-h-screen pt-14 flex items-center justify-center text-text-dim/60">加载题库中...</div>;
+    return (
+      <div className="min-h-screen pt-14 flex items-center justify-center text-text-dim/60">
+        加载题库中...
+      </div>
+    );
   }
 
   return (
@@ -444,8 +510,7 @@ export default function ReviewEntry() {
           <p className="text-text-dim/70 mb-8">选择复习内容，答后即时反馈，无时间压力</p>
 
           <div className="flex flex-col gap-4">
-
-            {/* 错题本 */}
+            {/* Incorrect-question collection. */}
             <div className="bg-surface border border-border rounded-2xl p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-9 h-9 rounded-xl bg-accent2/15 flex items-center justify-center flex-shrink-0">
@@ -466,14 +531,19 @@ export default function ReviewEntry() {
                     const wrongCount = getWrongQuestionIds({ [session.sessionId]: session }).size;
                     const checked = wrongSessionIds.includes(session.sessionId);
                     return (
-                      <label key={session.sessionId} className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-surface2 cursor-pointer">
+                      <label
+                        key={session.sessionId}
+                        className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-surface2 cursor-pointer"
+                      >
                         <input
                           type="checkbox"
                           checked={checked && !includeAllWrong}
                           disabled={includeAllWrong}
                           onChange={() =>
                             setWrongSessionIds(prev =>
-                              checked ? prev.filter(id => id !== session.sessionId) : [...prev, session.sessionId],
+                              checked
+                                ? prev.filter(id => id !== session.sessionId)
+                                : [...prev, session.sessionId],
                             )
                           }
                           className="accent-accent w-3.5 h-3.5 flex-shrink-0"
@@ -489,7 +559,10 @@ export default function ReviewEntry() {
                     <input
                       type="checkbox"
                       checked={includeAllWrong}
-                      onChange={e => { setIncludeAllWrong(e.target.checked); setWrongSessionIds([]); }}
+                      onChange={e => {
+                        setIncludeAllWrong(e.target.checked);
+                        setWrongSessionIds([]);
+                      }}
                       className="accent-accent w-3.5 h-3.5 flex-shrink-0"
                     />
                     <span className="text-sm text-text-dim/70">全部历史错题汇总</span>
@@ -499,7 +572,7 @@ export default function ReviewEntry() {
               )}
             </div>
 
-            {/* 收藏本 */}
+            {/* Bookmarks collection. */}
             <div className="bg-surface border border-border rounded-2xl p-5">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-accent/15 flex items-center justify-center flex-shrink-0">
@@ -531,7 +604,7 @@ export default function ReviewEntry() {
               )}
             </div>
 
-            {/* 按领域/单元/知识点 */}
+            {/* Browse by domain, unit, and knowledge point. */}
             <div className="bg-surface border border-border rounded-2xl p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-9 h-9 rounded-xl bg-green/15 flex items-center justify-center flex-shrink-0">
@@ -549,15 +622,19 @@ export default function ReviewEntry() {
                 initialGrade={initialGrade}
               />
             </div>
-
           </div>
 
-          {/* 底部操作 */}
+          {/* Bottom actions. */}
           <div className="mt-6 flex items-center justify-between">
             <p className="text-sm text-text-dim/70">
-              {canStart
-                ? <><span className="text-accent font-medium">{totalQuestions.length}</span> 道题（已合并去重）</>
-                : '请至少选择一个来源'}
+              {canStart ? (
+                <>
+                  <span className="text-accent font-medium">{totalQuestions.length}</span>{' '}
+                  道题（已合并去重）
+                </>
+              ) : (
+                '请至少选择一个来源'
+              )}
             </p>
             <Button variant="primary" disabled={!canStart} onClick={handleStart}>
               开始复习

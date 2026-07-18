@@ -1,24 +1,45 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  ArrowRight,
+  BookOpen,
+  ChevronDown,
+  ChevronRight,
+  GitMerge,
+  Info,
+  List,
+  Repeat2,
+  Search,
+  X,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ChevronDown, ChevronRight, X, GitMerge, ArrowRight, List, Info, BookOpen, Repeat2 } from 'lucide-react';
-import { kpMap, bridgeMap, getFullDepsChain, getDependents, graphData } from '../../data/kpIndex';
-import type { KPWithContext } from '../../data/kpIndex';
+import LocalGraph from '../../components/KnowledgeGraph/LocalGraph';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
-import LocalGraph from '../../components/KnowledgeGraph/LocalGraph';
+import type { KPWithContext } from '../../data/kpIndex';
+import { bridgeMap, getDependents, getFullDepsChain, graphData, kpMap } from '../../data/kpIndex';
 
-// ─── 单个知识点条目 ────────────────────────────────────────────────
-function KPItem({ kp, isSelected, onClick }: { kp: KPWithContext; isSelected: boolean; onClick: () => void }) {
+// Knowledge point item.
+function KPItem({
+  kp,
+  isSelected,
+  onClick,
+}: {
+  kp: KPWithContext;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
   const isBridge = bridgeMap.has(kp.id);
   return (
     <button
       onClick={onClick}
       className={`
         w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2 group
-        ${isSelected
-          ? 'bg-surface2 border border-border text-text'
-          : 'hover:bg-surface2/60 text-text-dim hover:text-text border border-transparent'}
+        ${
+          isSelected
+            ? 'bg-surface2 border border-border text-text'
+            : 'hover:bg-surface2/60 text-text-dim hover:text-text border border-transparent'
+        }
       `}
     >
       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: kp.gradeColor }} />
@@ -33,11 +54,15 @@ function KPItem({ kp, isSelected, onClick }: { kp: KPWithContext; isSelected: bo
   );
 }
 
-// ─── 单元手风琴 ────────────────────────────────────────────────────
+// Unit accordion.
 function UnitSection({
-  unit, semester, selectedId, query, onSelect,
+  unit,
+  semester,
+  selectedId,
+  query,
+  onSelect,
 }: {
-  unit: typeof graphData.grades[0]['domains'][0]['units'][0];
+  unit: (typeof graphData.grades)[0]['domains'][0]['units'][0];
   semester: string;
   selectedId: string | null;
   query: string;
@@ -98,11 +123,14 @@ function UnitSection({
   );
 }
 
-// ─── 领域手风琴 ────────────────────────────────────────────────────
+// Domain accordion.
 function DomainSection({
-  domain, selectedId, query, onSelect,
+  domain,
+  selectedId,
+  query,
+  onSelect,
 }: {
-  domain: typeof graphData.grades[0]['domains'][0];
+  domain: (typeof graphData.grades)[0]['domains'][0];
   selectedId: string | null;
   query: string;
   onSelect: (kp: KPWithContext) => void;
@@ -113,7 +141,7 @@ function DomainSection({
     if (!query) return true;
     const q = query.toLowerCase();
     return domain.units.some(u =>
-      u.kps.some(k => k.name.toLowerCase().includes(q) || k.id.includes(q))
+      u.kps.some(k => k.name.toLowerCase().includes(q) || k.id.includes(q)),
     );
   }, [domain, query]);
 
@@ -157,7 +185,7 @@ function DomainSection({
   );
 }
 
-// ─── 主页面 ────────────────────────────────────────────────────────
+// Main page.
 export default function GraphPage() {
   const navigate = useNavigate();
   const [activeGrade, setActiveGrade] = useState(1);
@@ -169,9 +197,9 @@ export default function GraphPage() {
   const currentGrade = graphData.grades[activeGrade - 1];
   const gradeColor = currentGrade?.color ?? '#d97706';
 
-  // 从 URL hash 恢复选中知识点
+  // Restore the selected knowledge point from the URL hash.
   useEffect(() => {
-    const hash = window.location.hash.slice(1); // 去掉 #
+    const hash = window.location.hash.slice(1); // Remove the leading hash.
     if (hash.startsWith('kp-')) {
       const kpId = hash.slice(3);
       const kp = kpMap.get(kpId);
@@ -187,9 +215,9 @@ export default function GraphPage() {
     if (kp.gradeNum !== activeGrade) {
       setActiveGrade(kp.gradeNum);
     }
-    // 更新 URL hash，方便分享
+    // Update the URL hash for sharing.
     window.location.hash = `kp-${kp.id}`;
-    // 移动端自动切换到详情视图
+    // Switch to the detail view automatically on mobile.
     setMobileTab('detail');
   };
 
@@ -203,21 +231,30 @@ export default function GraphPage() {
 
   const deps = selectedKP ? getFullDepsChain(selectedKP.id) : [];
   const dependents = selectedKP ? getDependents(selectedKP.id) : [];
-  const directDeps = selectedKP ? selectedKP.deps.map(id => kpMap.get(id)).filter(Boolean) as KPWithContext[] : [];
+  const directDeps = selectedKP
+    ? (selectedKP.deps.map(id => kpMap.get(id)).filter(Boolean) as KPWithContext[])
+    : [];
 
   return (
-    <div className="h-[100dvh] pt-14 flex flex-col overflow-hidden" style={{ background: 'var(--bg)' }}>
-
-      {/* ── 顶部年级标签栏 ── */}
+    <div
+      className="h-[calc(100dvh_-_var(--tab-bar-h))] pt-14 flex flex-col overflow-hidden"
+      style={{ background: 'var(--bg)' }}
+    >
+      {/* Top grade tabs. */}
       <div className="flex-shrink-0 border-b border-border bg-surface/80">
-        {/* 年级选择行 */}
+        {/* Grade selection row. */}
         <div className="flex items-center overflow-x-auto px-2">
           {graphData.grades.map((grade, i) => {
             const active = activeGrade === i + 1;
             return (
               <button
                 key={grade.id}
-                onClick={() => { setActiveGrade(i + 1); setQuery(''); setSelectedKP(null); setMobileTab('list'); }}
+                onClick={() => {
+                  setActiveGrade(i + 1);
+                  setQuery('');
+                  setSelectedKP(null);
+                  setMobileTab('list');
+                }}
                 className="flex items-center gap-1.5 px-3 sm:px-4 py-3 text-sm transition-all flex-shrink-0 border-b-2 -mb-px"
                 style={{
                   borderBottomColor: active ? grade.color : 'transparent',
@@ -225,27 +262,29 @@ export default function GraphPage() {
                   fontWeight: active ? 600 : 400,
                 }}
               >
-                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: grade.color }} />
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ background: grade.color }}
+                />
                 <span className="hidden sm:inline">{grade.name}</span>
                 <span className="sm:hidden">{grade.name.replace('年级', '')}</span>
               </button>
             );
           })}
-          {/* 搜索框在宽屏时放在年级栏右侧 */}
+          {/* Place search to the right of grade tabs on wide screens. */}
           <div className="ml-auto flex-shrink-0 py-2 pr-2 hidden sm:block">
             <SearchInput query={query} onChange={setQuery} searchRef={searchRef} />
           </div>
         </div>
-        {/* 搜索框在移动端单独一行 */}
+        {/* Place search on its own row on mobile. */}
         <div className="sm:hidden px-3 pt-1 pb-2">
           <SearchInput query={query} onChange={setQuery} searchRef={searchRef} fullWidth />
         </div>
       </div>
 
-      {/* ── 主体区域 ── */}
+      {/* Main area. */}
       <div className="flex-1 flex overflow-hidden min-h-0">
-
-        {/* ── 左侧浏览器 ── */}
+        {/* Left browser pane. */}
         <aside
           className={`
             flex-shrink-0 border-r border-border flex flex-col overflow-hidden bg-surface/50
@@ -282,7 +321,11 @@ export default function GraphPage() {
                     {currentGrade?.name}
                   </span>
                   <span className="text-xs text-text-dim">
-                    {currentGrade?.domains.reduce((s, d) => s + d.units.reduce((ss, u) => ss + u.kps.length, 0), 0)} 个知识点
+                    {currentGrade?.domains.reduce(
+                      (s, d) => s + d.units.reduce((ss, u) => ss + u.kps.length, 0),
+                      0,
+                    )}{' '}
+                    个知识点
                   </span>
                 </div>
                 {currentGrade?.domains.map(domain => (
@@ -299,7 +342,7 @@ export default function GraphPage() {
           </div>
         </aside>
 
-        {/* ── 右侧详情 ── */}
+        {/* Right detail pane. */}
         <main
           className={`
             flex-1 overflow-y-auto
@@ -318,7 +361,7 @@ export default function GraphPage() {
                 <GitMerge size={48} className="opacity-20" />
                 <p className="text-lg">从左侧选择一个知识点</p>
                 <p className="text-sm opacity-60">查看依赖关系和学习路径</p>
-                {/* 移动端提示 */}
+                {/* Mobile hint. */}
                 <button
                   onClick={() => setMobileTab('list')}
                   className="md:hidden mt-2 text-sm text-accent underline"
@@ -335,7 +378,7 @@ export default function GraphPage() {
                 transition={{ duration: 0.2 }}
                 className="p-4 sm:p-6 flex flex-col gap-6 max-w-3xl"
               >
-                {/* 知识点信息卡 */}
+                {/* Knowledge point information card. */}
                 <div
                   className="rounded-2xl p-4 sm:p-5 border"
                   style={{
@@ -346,7 +389,9 @@ export default function GraphPage() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <code className="text-xs text-text-dim bg-surface2 px-1.5 py-0.5 rounded">{selectedKP.id}</code>
+                        <code className="text-xs text-text-dim bg-surface2 px-1.5 py-0.5 rounded">
+                          {selectedKP.id}
+                        </code>
                         <Badge color={selectedKP.gradeColor}>{selectedKP.gradeName}</Badge>
                         <Badge color="#2563eb">{selectedKP.domainName}</Badge>
                         <Badge color={selectedKP.unitSemester === '上' ? '#2563eb' : '#7b2d8b'}>
@@ -356,7 +401,10 @@ export default function GraphPage() {
                           <Badge color="var(--bridge)">🌉 {bridgeMap.get(selectedKP.id)}</Badge>
                         )}
                       </div>
-                      <h2 className="font-serif text-xl sm:text-2xl font-semibold break-words" style={{ color: selectedKP.gradeColor }}>
+                      <h2
+                        className="font-serif text-xl sm:text-2xl font-semibold break-words"
+                        style={{ color: selectedKP.gradeColor }}
+                      >
                         {selectedKP.name}
                       </h2>
                       <p className="text-sm text-text-dim mt-1">{selectedKP.unitName}</p>
@@ -370,7 +418,7 @@ export default function GraphPage() {
                   </div>
                 </div>
 
-                {/* 局部关系图 */}
+                {/* Local relationship graph. */}
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <h3 className="text-sm font-medium">关系图</h3>
@@ -385,19 +433,17 @@ export default function GraphPage() {
                     </div>
                   ) : (
                     <div className="h-60 sm:h-72 rounded-xl overflow-hidden border border-border">
-                      <LocalGraph
-                        centerKP={selectedKP}
-                        onNodeClick={handleSelect}
-                      />
+                      <LocalGraph centerKP={selectedKP} onNodeClick={handleSelect} />
                     </div>
                   )}
                   <p className="text-xs text-text-dim mt-2 flex items-center gap-1">
-                    <ArrowRight size={10} /> 箭头方向：前置知识点 → 当前知识点 → 后续知识点。可点击图中节点跳转。
+                    <ArrowRight size={10} /> 箭头方向：前置知识点 → 当前知识点 →
+                    后续知识点。可点击图中节点跳转。
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* 直接前置 */}
+                  {/* Direct prerequisites. */}
                   <div className="bg-surface border border-border rounded-xl p-4">
                     <h3 className="text-sm font-medium mb-3 flex items-center gap-1.5">
                       <span className="text-text-dim">←</span> 学了这些才能学这个
@@ -413,7 +459,10 @@ export default function GraphPage() {
                             onClick={() => handleSelect(d)}
                             className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors text-left w-full"
                           >
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: d.gradeColor }} />
+                            <span
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ background: d.gradeColor }}
+                            />
                             <span className="flex-1">{d.name}</span>
                             <span className="text-xs text-text-dim">{d.gradeName}</span>
                           </button>
@@ -422,7 +471,7 @@ export default function GraphPage() {
                     )}
                   </div>
 
-                  {/* 直接后续 */}
+                  {/* Direct successors. */}
                   <div className="bg-surface border border-border rounded-xl p-4">
                     <h3 className="text-sm font-medium mb-3 flex items-center gap-1.5">
                       <span className="text-text-dim">→</span> 学会这个才能继续学
@@ -438,7 +487,10 @@ export default function GraphPage() {
                             onClick={() => handleSelect(d)}
                             className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors text-left w-full"
                           >
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: d.gradeColor }} />
+                            <span
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ background: d.gradeColor }}
+                            />
                             <span className="flex-1">{d.name}</span>
                             <span className="text-xs text-text-dim">{d.gradeName}</span>
                           </button>
@@ -448,11 +500,14 @@ export default function GraphPage() {
                   </div>
                 </div>
 
-                {/* 完整依赖链 */}
+                {/* Full dependency chain. */}
                 {deps.length > 0 && (
                   <div className="bg-surface border border-border rounded-xl p-4">
                     <h3 className="text-sm font-medium mb-3">
-                      完整前置链 <span className="text-text-dim text-xs ml-1">（掌握这个知识点需要的全部基础）</span>
+                      完整前置链{' '}
+                      <span className="text-text-dim text-xs ml-1">
+                        （掌握这个知识点需要的全部基础）
+                      </span>
                     </h3>
                     <div className="flex flex-wrap gap-2">
                       {deps.map(d => (
@@ -474,7 +529,7 @@ export default function GraphPage() {
                   </div>
                 )}
 
-                {/* 快捷操作 */}
+                {/* Quick actions. */}
                 <div className="flex flex-col gap-2 pt-2">
                   <Button
                     variant="primary"
@@ -501,9 +556,9 @@ export default function GraphPage() {
         </main>
       </div>
 
-      {/* ── 移动端底部标签栏 ── */}
+      {/* Mobile bottom tabs. */}
       <div className="md:hidden flex-shrink-0 border-t border-border bg-surface flex items-stretch h-12">
-        {/* 列表按钮：紧凑固定，图标+短文字 */}
+        {/* Compact fixed list button with an icon and short label. */}
         <button
           onClick={() => setMobileTab('list')}
           className={`flex-shrink-0 flex items-center gap-1.5 px-4 border-r border-border text-sm transition-colors ${
@@ -513,7 +568,7 @@ export default function GraphPage() {
           <List size={16} />
           列表
         </button>
-        {/* 详情按钮：剩余全部宽度，KP 名称 truncate */}
+        {/* Detail button fills the remaining width and truncates the knowledge point name. */}
         <button
           onClick={() => setMobileTab('detail')}
           className={`flex-1 flex items-center gap-2 px-4 text-sm transition-colors overflow-hidden ${
@@ -521,18 +576,19 @@ export default function GraphPage() {
           }`}
         >
           <Info size={16} className="flex-shrink-0" />
-          <span className="truncate">
-            {selectedKP ? selectedKP.name : '知识点详情'}
-          </span>
+          <span className="truncate">{selectedKP ? selectedKP.name : '知识点详情'}</span>
         </button>
       </div>
     </div>
   );
 }
 
-// ─── 搜索输入框（提取为独立组件避免重复） ────────────────────────────
+// Extracted search input component to avoid duplication.
 function SearchInput({
-  query, onChange, searchRef, fullWidth,
+  query,
+  onChange,
+  searchRef,
+  fullWidth,
 }: {
   query: string;
   onChange: (v: string) => void;
@@ -541,7 +597,10 @@ function SearchInput({
 }) {
   return (
     <div className="relative">
-      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
+      <Search
+        size={13}
+        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none"
+      />
       <input
         ref={searchRef}
         type="text"
@@ -551,7 +610,10 @@ function SearchInput({
         className={`pl-8 pr-8 py-1.5 text-sm bg-surface2 border border-border rounded-lg text-text placeholder:text-text-dim/40 focus:outline-none focus:border-accent ${fullWidth ? 'w-full' : 'w-44'}`}
       />
       {query && (
-        <button onClick={() => onChange('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-dim hover:text-text">
+        <button
+          onClick={() => onChange('')}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-dim hover:text-text"
+        >
           <X size={13} />
         </button>
       )}

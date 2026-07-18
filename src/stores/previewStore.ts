@@ -1,21 +1,23 @@
 // src/stores/previewStore.ts
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { KnowledgeCard, PreviewPhase, PreviewSession } from '../types';
-import { judgeQuestion } from '../utils/judgeAnswer';
 import cardsRaw from '../data/knowledge-cards.json';
 import { getCachedQuestionById } from '../data/questions';
+import type { KnowledgeCard, PreviewPhase, PreviewSession } from '../types';
+import { judgeQuestion } from '../utils/judgeAnswer';
 
-// 静态加载知识卡（src/data/knowledge-cards.json，打包进 bundle）
+// Load knowledge cards statically from src/data/knowledge-cards.json into the bundle.
 const cardsMap: Record<string, KnowledgeCard> = {};
-(cardsRaw as KnowledgeCard[]).forEach(c => { cardsMap[c.kp_id] = c; });
+(cardsRaw as KnowledgeCard[]).forEach(c => {
+  cardsMap[c.kp_id] = c;
+});
 
 const STORAGE_KEY = 'suandao-preview';
 const MAX_SESSIONS = 10;
 
 interface PreviewStore {
   sessions: Record<string, PreviewSession>;
-  cards: Record<string, KnowledgeCard>;  // 不持久化
+  cards: Record<string, KnowledgeCard>; // Runtime-only state.
 
   getSession(sessionId: string): PreviewSession | null;
   createSession(kpIds: string[]): string;
@@ -32,11 +34,11 @@ export const usePreviewStore = create<PreviewStore>()(
   persist(
     (set, get) => ({
       sessions: {},
-      cards: cardsMap,  // 运行时注入，不写入 localStorage
+      cards: cardsMap, // Injected at runtime and omitted from localStorage.
 
-      getSession: (sessionId) => get().sessions[sessionId] ?? null,
+      getSession: sessionId => get().sessions[sessionId] ?? null,
 
-      createSession: (kpIds) => {
+      createSession: kpIds => {
         const sessionId = crypto.randomUUID();
         const session: PreviewSession = {
           sessionId,
@@ -70,7 +72,7 @@ export const usePreviewStore = create<PreviewStore>()(
           return { sessions: { ...state.sessions, [sessionId]: { ...session, phase } } };
         }),
 
-      skipCard: (sessionId) =>
+      skipCard: sessionId =>
         set(state => {
           const session = state.sessions[sessionId];
           if (!session) return state;
@@ -162,7 +164,7 @@ export const usePreviewStore = create<PreviewStore>()(
           };
         }),
 
-      completeKp: (sessionId) =>
+      completeKp: sessionId =>
         set(state => {
           const session = state.sessions[sessionId];
           if (!session) return state;
@@ -185,7 +187,7 @@ export const usePreviewStore = create<PreviewStore>()(
     }),
     {
       name: STORAGE_KEY,
-      partialize: (state) => ({ sessions: state.sessions }),
+      partialize: state => ({ sessions: state.sessions }),
     },
   ),
 );

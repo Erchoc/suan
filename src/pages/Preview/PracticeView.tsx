@@ -1,11 +1,12 @@
 // src/pages/Preview/PracticeView.tsx
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react';
-import type { Question } from '../../types';
-import { usePreviewStore } from '../../stores/previewStore';
 
-// ─── 轻量题目渲染器（预习专用）────────────────────────────────────────────────
+import { AnimatePresence, motion } from 'framer-motion';
+import { CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { usePreviewStore } from '../../stores/previewStore';
+import type { Question } from '../../types';
+
+// Lightweight question renderer for preview mode.
 interface PreviewQuestionItemProps {
   question: Question;
   answers: string[];
@@ -18,8 +19,14 @@ interface PreviewQuestionItemProps {
 }
 
 function PreviewQuestionItem({
-  question, answers, choiceAnswer, submitted, result,
-  onAnswerChange, onChoiceChange, onSubmit,
+  question,
+  answers,
+  choiceAnswer,
+  submitted,
+  result,
+  onAnswerChange,
+  onChoiceChange,
+  onSubmit,
 }: PreviewQuestionItemProps) {
   const qType = question.type ?? 'fill_blank';
 
@@ -55,40 +62,50 @@ function PreviewQuestionItem({
           className={`p-3 rounded-xl border text-sm text-left transition-colors ${
             choiceAnswer === c.label
               ? submitted
-                ? result === 'correct' ? 'border-green bg-green/10 text-green' : 'border-accent2 bg-accent2/10 text-accent2'
+                ? result === 'correct'
+                  ? 'border-green bg-green/10 text-green'
+                  : 'border-accent2 bg-accent2/10 text-accent2'
                 : 'border-accent bg-accent/10 text-accent'
               : submitted && question.correctChoice === c.label
-              ? 'border-green bg-green/10 text-green'
-              : 'border-border hover:border-accent/40'
+                ? 'border-green bg-green/10 text-green'
+                : 'border-border hover:border-accent/40'
           }`}
         >
-          <span className="font-bold mr-2">{c.label}.</span>{c.content}
+          <span className="font-bold mr-2">{c.label}.</span>
+          {c.content}
         </button>
       ))}
     </div>
   );
 
   const hasAnsweredAll = (() => {
-    if (qType === 'fill_blank') return answers.every(a => a.trim() !== '') && answers.length === question.blanks.length;
+    if (qType === 'fill_blank')
+      return answers.every(a => a.trim() !== '') && answers.length === question.blanks.length;
     if (qType === 'choice') return !!choiceAnswer;
-    return !!choiceAnswer && answers.every(a => a.trim() !== '') && answers.length === question.blanks.length;
+    return (
+      !!choiceAnswer &&
+      answers.every(a => a.trim() !== '') &&
+      answers.length === question.blanks.length
+    );
   })();
 
   return (
     <div className="bg-surface rounded-xl border border-border p-4 space-y-3">
-      {/* 题目正文 */}
+      {/* Question content. */}
       <div>
         {(qType === 'fill_blank' || qType === 'mixed') && renderFillBlanks()}
-        {qType === 'choice' && <p className="text-text text-base leading-relaxed">{question.question}</p>}
+        {qType === 'choice' && (
+          <p className="text-text text-base leading-relaxed">{question.question}</p>
+        )}
         {(qType === 'choice' || qType === 'mixed') && renderChoices()}
       </div>
 
-      {/* hint（默认展开） */}
+      {/* Hint, expanded by default. */}
       {question.hint && (
         <p className="text-xs text-text-dim border-l-2 border-accent/40 pl-2">{question.hint}</p>
       )}
 
-      {/* 提交按钮 */}
+      {/* Submit button. */}
       {!submitted && (
         <button
           onClick={onSubmit}
@@ -99,14 +116,16 @@ function PreviewQuestionItem({
         </button>
       )}
 
-      {/* 结果反馈 */}
+      {/* Result feedback. */}
       {submitted && (
-        <div className={`text-sm font-medium ${result === 'correct' ? 'text-green' : 'text-accent2'}`}>
+        <div
+          className={`text-sm font-medium ${result === 'correct' ? 'text-green' : 'text-accent2'}`}
+        >
           {result === 'correct' ? '✓ 回答正确！' : '✗ 回答有误'}
         </div>
       )}
 
-      {/* 答错展示解析 */}
+      {/* Show the explanation after an incorrect answer. */}
       {submitted && result === 'wrong' && (
         <div className="p-3 bg-surface2 rounded-lg border border-border text-sm text-text-dim">
           <p className="font-medium text-text mb-1">解题过程：</p>
@@ -129,7 +148,10 @@ interface PracticeViewProps {
 }
 
 export default function PracticeView({
-  sessionId, questions, isJunior, onComplete,
+  sessionId,
+  questions,
+  isJunior,
+  onComplete,
 }: PracticeViewProps) {
   const { setAnswer, setChoiceAnswer, submitAnswer } = usePreviewStore();
   const session = usePreviewStore(s => s.getSession(sessionId));
@@ -140,24 +162,27 @@ export default function PracticeView({
   }, [currentIndex]);
   const [submittedIds, setSubmittedIds] = useState<Set<string>>(new Set());
 
-  const handleSubmit = useCallback((q: Question) => {
-    if (submittedIds.has(q.id)) return;
-    submitAnswer(sessionId, q.id);
-    setSubmittedIds(prev => new Set([...prev, q.id]));
+  const handleSubmit = useCallback(
+    (q: Question) => {
+      if (submittedIds.has(q.id)) return;
+      submitAnswer(sessionId, q.id);
+      setSubmittedIds(prev => new Set([...prev, q.id]));
 
-    if (isJunior) {
-      setTimeout(() => {
-        const latestIndex = currentIndexRef.current;
-        if (latestIndex < questions.length - 1) {
-          setCurrentIndex(latestIndex + 1);
-        } else {
-          onComplete();
-        }
-      }, 1200);
-    }
-  }, [submittedIds, sessionId, isJunior, questions.length, submitAnswer, onComplete]);
+      if (isJunior) {
+        setTimeout(() => {
+          const latestIndex = currentIndexRef.current;
+          if (latestIndex < questions.length - 1) {
+            setCurrentIndex(latestIndex + 1);
+          } else {
+            onComplete();
+          }
+        }, 1200);
+      }
+    },
+    [submittedIds, sessionId, isJunior, questions.length, submitAnswer, onComplete],
+  );
 
-  // 无题目 fallback
+  // Fallback when no questions are available.
   if (questions.length === 0) {
     return (
       <div className="bg-surface rounded-2xl border border-border p-6 text-center space-y-4">
@@ -176,7 +201,7 @@ export default function PracticeView({
   const current = questions[currentIndex];
   const allDone = questions.every(q => submittedIds.has(q.id));
 
-  // 4-6年级：列表式
+  // Grades 4-6 use a list layout.
   if (!isJunior) {
     return (
       <div className="space-y-4">
@@ -191,7 +216,8 @@ export default function PracticeView({
               result={session?.results[q.id]}
               onAnswerChange={(i, v) => {
                 const curr = session?.answers[q.id] ?? Array(q.blanks.length).fill('');
-                const next = [...curr]; next[i] = v;
+                const next = [...curr];
+                next[i] = v;
                 setAnswer(sessionId, q.id, next);
               }}
               onChoiceChange={label => setChoiceAnswer(sessionId, q.id, label)}
@@ -211,26 +237,38 @@ export default function PracticeView({
     );
   }
 
-  // 1-3年级：单题翻页
+  // Grades 1-3 show one question per page.
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between text-sm text-text-dim">
-        <span>练习 {currentIndex + 1} / {questions.length}</span>
+        <span>
+          练习 {currentIndex + 1} / {questions.length}
+        </span>
         <div className="flex gap-1">
           {questions.map((q, i) => (
-            <div key={q.id} className={`w-2 h-2 rounded-full ${
-              session?.results[q.id] === 'correct' ? 'bg-green' :
-              session?.results[q.id] === 'wrong' ? 'bg-accent2' :
-              i === currentIndex ? 'bg-accent' : 'bg-border'
-            }`} />
+            <div
+              key={q.id}
+              className={`w-2 h-2 rounded-full ${
+                session?.results[q.id] === 'correct'
+                  ? 'bg-green'
+                  : session?.results[q.id] === 'wrong'
+                    ? 'bg-accent2'
+                    : i === currentIndex
+                      ? 'bg-accent'
+                      : 'bg-border'
+              }`}
+            />
           ))}
         </div>
       </div>
 
       <AnimatePresence mode="wait">
-        <motion.div key={current.id}
-          initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}
+        <motion.div
+          key={current.id}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.2 }}
         >
           <PreviewQuestionItem
             question={current}
@@ -240,7 +278,8 @@ export default function PracticeView({
             result={session?.results[current.id]}
             onAnswerChange={(i, v) => {
               const curr = session?.answers[current.id] ?? Array(current.blanks.length).fill('');
-              const next = [...curr]; next[i] = v;
+              const next = [...curr];
+              next[i] = v;
               setAnswer(sessionId, current.id, next);
             }}
             onChoiceChange={label => setChoiceAnswer(sessionId, current.id, label)}
@@ -249,18 +288,23 @@ export default function PracticeView({
         </motion.div>
       </AnimatePresence>
 
-      {/* 手动导航（提交后才显示） */}
+      {/* Manual navigation shown after submission. */}
       {submittedIds.has(current.id) && !isJunior && (
         <div className="flex gap-3">
           {currentIndex > 0 && (
-            <button onClick={() => setCurrentIndex(i => i - 1)}
-              className="flex items-center gap-1 px-4 py-2 border border-border rounded-xl text-text-dim text-sm hover:border-accent/40 transition-colors">
+            <button
+              onClick={() => setCurrentIndex(i => i - 1)}
+              className="flex items-center gap-1 px-4 py-2 border border-border rounded-xl text-text-dim text-sm hover:border-accent/40 transition-colors"
+            >
               <ChevronLeft size={14} /> 上一题
             </button>
           )}
           <button
-            onClick={() => currentIndex < questions.length - 1 ? setCurrentIndex(i => i + 1) : onComplete()}
-            className="flex-1 px-4 py-2 bg-accent text-bg rounded-xl text-sm font-medium hover:bg-accent/90 transition-colors flex items-center justify-center gap-1">
+            onClick={() =>
+              currentIndex < questions.length - 1 ? setCurrentIndex(i => i + 1) : onComplete()
+            }
+            className="flex-1 px-4 py-2 bg-accent text-bg rounded-xl text-sm font-medium hover:bg-accent/90 transition-colors flex items-center justify-center gap-1"
+          >
             {currentIndex < questions.length - 1 ? '下一题' : '完成练习'}
             <ChevronRight size={14} />
           </button>
