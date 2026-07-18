@@ -2,8 +2,11 @@
 
 算道是一个面向小学一至六年级的智能学习平台，提供知识图谱、摸底诊断、复习与预习流程，并通过流式 AI 对话辅助孩子理解数学知识点。
 
+[![持续集成](https://github.com/Erchoc/suan/actions/workflows/ci.yml/badge.svg)](https://github.com/Erchoc/suan/actions/workflows/ci.yml)
+
 - 在线地址：[https://suan.longye.site](https://suan.longye.site)
 - 开源协议：[MIT](LICENSE)
+- 质量报告：[99 / 100](docs/质量报告.md)
 
 ## 界面预览
 
