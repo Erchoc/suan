@@ -1,5 +1,5 @@
 import { type ReactNode, useLayoutEffect, useState } from 'react';
-import { applyThemeAppearance, normalizeTheme } from '../utils/themeAppearance';
+import { applyThemeAppearance, getNextTheme, normalizeTheme } from '../utils/themeAppearance';
 import { type Theme, ThemeContext } from './theme';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -21,9 +21,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   const toggle = () => {
-    const nextTheme = theme === 'light' ? 'dark' : 'light';
+    const nextTheme = getNextTheme(theme);
 
-    // Safari samples the page background for its top bar during the input event.
+    // Synchronize browser chrome before React commits the new theme.
     applyThemeAppearance(nextTheme);
     setTheme(nextTheme);
   };

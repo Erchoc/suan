@@ -10,9 +10,15 @@ import {
   Sparkles,
   Sun,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../../contexts/theme';
+import {
+  applyThemeAppearance,
+  getNextTheme,
+  shouldPreviewThemeOnPointer,
+  THEME_APPEARANCE,
+} from '../../utils/themeAppearance';
 
 // ─── Navigation configuration ──────────────────────────────
 const BOTTOM_NAV = [
@@ -144,8 +150,10 @@ function DesktopNav() {
         </div>
 
         <button
+          type="button"
           onClick={toggle}
-          aria-label="切换主题"
+          aria-label="深色主题"
+          aria-pressed={theme === 'dark'}
           className="cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg text-text-dim hover:text-text hover:bg-surface2 transition-colors"
         >
           {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
@@ -155,16 +163,49 @@ function DesktopNav() {
   );
 }
 
-// ─── Mobile safe-area header with a translucent background ──
+// ─── Mobile safe-area header ────────────────────────────────
 function MobileStatusBar({ isPWA }: { isPWA: boolean }) {
   const { theme, toggle } = useTheme();
+  const touchPreviewActive = useRef(false);
+
+  const restoreCommittedTheme = () => {
+    if (!touchPreviewActive.current) return;
+    touchPreviewActive.current = false;
+    applyThemeAppearance(theme);
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!shouldPreviewThemeOnPointer(event)) return;
+    touchPreviewActive.current = true;
+    applyThemeAppearance(getNextTheme(theme));
+  };
+
+  const handlePointerUp = () => {
+    if (!touchPreviewActive.current) return;
+
+    requestAnimationFrame(() => {
+      // A normal activation fires click before this frame. Restore only when it was cancelled.
+      restoreCommittedTheme();
+    });
+  };
+
+  const handleToggle = () => {
+    touchPreviewActive.current = false;
+    toggle();
+  };
 
   if (isPWA) {
-    // Use a solid themed safe-area background in standalone mode to avoid system-bar mismatch.
+    // Replacing this fixed surface forces WebKit to resample the safe-area extension color.
     return (
       <div
+        key={`pwa-status-${theme}`}
+        data-theme-surface="top"
+        data-theme={theme}
         className="sm:hidden fixed top-0 left-0 right-0 z-50"
-        style={{ height: 'env(safe-area-inset-top)', background: 'var(--bg)' }}
+        style={{
+          height: 'env(safe-area-inset-top)',
+          backgroundColor: THEME_APPEARANCE[theme].themeColor,
+        }}
         aria-hidden
       />
     );
@@ -172,26 +213,46 @@ function MobileStatusBar({ isPWA }: { isPWA: boolean }) {
 
   // Regular mobile browsers use a compact header with the logo and theme toggle.
   return (
-    <nav
-      className="sm:hidden fixed top-0 left-0 right-0 z-50 flex items-end px-4 pb-2 backdrop-blur-md"
-      style={{
-        paddingTop: 'max(env(safe-area-inset-top), 8px)',
-        background: 'color-mix(in srgb, var(--bg) 92%, transparent)',
-        borderBottom: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
-        height: 'calc(env(safe-area-inset-top) + 44px)',
-      }}
-    >
-      <Link to="/" className="flex items-center gap-2 flex-1">
-        <span className="font-brush text-xl text-accent">算道</span>
-      </Link>
-      <button
-        onClick={toggle}
-        aria-label="切换主题"
-        className="w-8 h-8 flex items-center justify-center rounded-lg text-text-dim transition-colors"
+    <>
+      {/* Remount only this inert fixed layer so WebKit resamples without dropping button focus. */}
+      <div
+        key={`mobile-status-sample-${theme}`}
+        data-theme-surface="top"
+        data-theme={theme}
+        className="sm:hidden fixed top-0 left-0 right-0 z-40 pointer-events-none"
+        style={{
+          height: 'calc(env(safe-area-inset-top) + 44px)',
+          backgroundColor: THEME_APPEARANCE[theme].themeColor,
+        }}
+        aria-hidden
+      />
+      <nav
+        data-theme={theme}
+        className="sm:hidden fixed top-0 left-0 right-0 z-50 flex items-end px-4 pb-2"
+        style={{
+          paddingTop: 'max(env(safe-area-inset-top), 8px)',
+          backgroundColor: 'var(--bg)',
+          borderBottom: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
+          height: 'calc(env(safe-area-inset-top) + 44px)',
+        }}
       >
-        {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-      </button>
-    </nav>
+        <Link to="/" className="flex items-center gap-2 flex-1">
+          <span className="font-brush text-xl text-accent">算道</span>
+        </Link>
+        <button
+          type="button"
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={restoreCommittedTheme}
+          onClick={handleToggle}
+          aria-label="深色主题"
+          aria-pressed={theme === 'dark'}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-text-dim transition-colors"
+        >
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
+      </nav>
+    </>
   );
 }
 
