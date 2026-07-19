@@ -231,6 +231,9 @@ export function TaskLauncherDialog({ type, busy, onClose, onStart }: TaskLaunche
             value={kpId}
             options={knowledgePointOptions}
             onChange={setKpId}
+            searchable
+            searchPlaceholder="搜索知识点 ID 或名称"
+            emptyText="没有匹配的知识点"
           />
           <Select
             label="题型"

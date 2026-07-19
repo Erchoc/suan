@@ -47,12 +47,15 @@ export default function Dialog({
     if (!open) return;
     const previousFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const frame = requestAnimationFrame(() => {
       const initialFocus = panelRef.current?.querySelector<HTMLElement>('[data-dialog-autofocus]');
       (initialFocus ?? panelRef.current)?.focus();
     });
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.key === 'Escape' && dismissibleRef.current) {
         event.preventDefault();
         onCloseRef.current();
@@ -80,6 +83,7 @@ export default function Dialog({
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousBodyOverflow;
       previousFocus?.focus();
     };
   }, [open]);
@@ -87,7 +91,7 @@ export default function Dialog({
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 sm:p-6">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6">
       <button
         type="button"
         tabIndex={-1}
@@ -102,9 +106,9 @@ export default function Dialog({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
-        className={`relative w-full overflow-hidden rounded-2xl border border-border bg-bg shadow-2xl outline-none ${panelClassName}`}
+        className={`relative flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-2xl border border-border bg-bg shadow-2xl outline-none sm:max-h-[calc(100dvh-3rem)] ${panelClassName}`}
       >
-        <header className="flex items-start justify-between gap-5 border-b border-border px-5 py-4">
+        <header className="flex shrink-0 items-start justify-between gap-5 border-b border-border px-4 py-4 sm:px-5">
           <div>
             <h2 id={titleId} className="font-serif text-xl font-semibold text-text">
               {title}
@@ -126,9 +130,19 @@ export default function Dialog({
             </button>
           )}
         </header>
-        {children && <div className="px-5 py-5">{children}</div>}
+        {children && (
+          <div
+            data-select-boundary
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5"
+          >
+            {children}
+          </div>
+        )}
         {footer && (
-          <footer className="flex flex-wrap justify-end gap-2 border-t border-border bg-surface2/50 px-5 py-4">
+          <footer
+            className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border bg-surface2/50 px-4 py-4 sm:px-5"
+            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+          >
             {footer}
           </footer>
         )}

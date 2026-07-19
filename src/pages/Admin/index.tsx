@@ -939,7 +939,7 @@ export default function AdminQuestionBankPage() {
           ) : undefined
         }
       >
-        <div className="max-h-[52vh] space-y-3 overflow-y-auto pr-1">
+        <div className="space-y-3">
           {reportsLoading && <p className="py-8 text-center text-sm text-text-dim">加载反馈中…</p>}
           {!reportsLoading && reports.length === 0 && (
             <p className="py-8 text-center text-sm text-text-dim">没有待处理反馈</p>

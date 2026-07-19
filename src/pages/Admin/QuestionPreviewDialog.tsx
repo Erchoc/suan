@@ -50,7 +50,7 @@ export default function QuestionPreviewDialog({
       footer={<Button onClick={onClose}>关闭</Button>}
     >
       {question && (
-        <div className="max-h-[68vh] space-y-4 overflow-y-auto pr-1">
+        <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             <Badge>
               {question.grade} · {question.semester}
