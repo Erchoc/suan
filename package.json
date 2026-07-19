@@ -19,6 +19,9 @@
       },
       "AI_PROTOCOL": {
         "description": "Upstream protocol: openai-chat, openai-coding, or anthropic."
+      },
+      "ADMIN_SESSION_SECRET": {
+        "description": "A random secret with at least 24 characters for signing console sessions."
       }
     }
   },
@@ -59,7 +62,12 @@
     "check:questions": "tsx --env-file-if-exists=.env scripts/checkQuestions.ts",
     "check:grade": "tsx --env-file-if-exists=.env scripts/checkQuestions.ts --grade",
     "check:kp": "tsx --env-file-if-exists=.env scripts/checkQuestions.ts --kp",
-    "check:dry": "tsx --env-file-if-exists=.env scripts/checkQuestions.ts --dry-run"
+    "check:dry": "tsx --env-file-if-exists=.env scripts/checkQuestions.ts --dry-run",
+    "db:migrate:local": "wrangler d1 migrations apply CONTENT_DB --local",
+    "db:migrate:production": "wrangler d1 migrations apply CONTENT_DB --remote --env production",
+    "db:seed:generate": "tsx scripts/seedQuestionBank.ts",
+    "db:seed:local": "pnpm db:seed:generate && wrangler d1 execute CONTENT_DB --local --file .wrangler/question-bank-seed.sql",
+    "db:seed:production": "pnpm db:seed:generate && wrangler d1 execute CONTENT_DB --remote --env production --file .wrangler/question-bank-seed.sql"
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",

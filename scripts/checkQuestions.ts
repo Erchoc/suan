@@ -4,7 +4,7 @@
  * Usage: pnpm run check:questions [--grade N] [--kp ID] [--limit N] [--dry-run] [--force]
  *
  * Workflow:
- *   1. Read public/questions.json.
+ *   1. Read data/questions.seed.json.
  *   2. Skip validated questions by default; --force validates everything again.
  *   3. Send each question to an LLM for quality review.
  *   4. Set enable=false and write checkMessage for invalid questions.
@@ -34,7 +34,7 @@ import { readAIConfig, requestAIText } from './aiText.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const QUESTIONS_PATH = path.join(ROOT, 'public/questions.json');
+const QUESTIONS_PATH = path.join(ROOT, 'data/questions.seed.json');
 
 // Types
 
@@ -99,7 +99,7 @@ if (!DRY_RUN) {
 // Data loading
 
 if (!fs.existsSync(QUESTIONS_PATH)) {
-  console.error('❌ public/questions.json was not found');
+  console.error('❌ data/questions.seed.json was not found');
   process.exit(1);
 }
 

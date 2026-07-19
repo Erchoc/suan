@@ -1,0 +1,176 @@
+import type { BlankInputType, Choice, Question, QuestionType } from '../types';
+
+export interface QuestionBankMeta {
+  draftRevision: number;
+  publishedRevision: number;
+  sourceSha256: string | null;
+  importedAt: string | null;
+  publishedAt: string | null;
+  updatedAt: string;
+}
+
+export interface AdminQuestionList {
+  data: Question[];
+  page: number;
+  pageSize: number;
+  total: number;
+  stats: { total: number; enabled: number; disabled: number };
+  meta: QuestionBankMeta;
+}
+
+export interface AdminQuestionFilters {
+  page: number;
+  pageSize: number;
+  query?: string;
+  grade?: string;
+  semester?: string;
+  difficulty?: Question['difficulty'];
+  type?: QuestionType;
+  status?: 'enabled' | 'disabled';
+}
+
+export interface QuestionPatch {
+  kp_id?: string;
+  kp_name?: string;
+  grade?: string;
+  semester?: string;
+  difficulty?: Question['difficulty'];
+  type?: QuestionType;
+  question?: string;
+  blanks?: string[];
+  blank_types?: BlankInputType[] | null;
+  choices?: Choice[] | null;
+  correctChoice?: string | null;
+  solution?: string;
+  common_mistake?: string;
+  hint?: string;
+  enable?: boolean;
+  checkMessage?: string | null;
+}
+
+export interface QuestionAuditEntry {
+  id: number;
+  revision: number;
+  questionId: string | null;
+  action: string;
+  before: unknown;
+  after: unknown;
+  actor: string;
+  createdAt: string;
+}
+
+export class AdminApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AdminApiError';
+  }
+}
+
+async function readApiResponse<T>(response: Response): Promise<T> {
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof payload.error === 'object' &&
+      payload.error !== null &&
+      'message' in payload.error &&
+      typeof payload.error.message === 'string'
+        ? payload.error.message
+        : `请求失败：${response.status}`;
+    throw new AdminApiError(response.status, message);
+  }
+  return payload as T;
+}
+
+function getAdminClientId(): string {
+  const key = 'suan-admin-client-id';
+  const existing = sessionStorage.getItem(key);
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  sessionStorage.setItem(key, created);
+  return created;
+}
+
+async function adminFetch<T>(url: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, {
+    credentials: 'same-origin',
+    ...init,
+    headers: {
+      ...(init.body ? { 'content-type': 'application/json' } : {}),
+      ...init.headers,
+    },
+  });
+  return readApiResponse<T>(response);
+}
+
+export function getAdminSession(): Promise<{ authenticated: boolean }> {
+  return adminFetch('/api/admin/session');
+}
+
+export function loginAdmin(passcode: string): Promise<{ authenticated: true; expiresAt: number }> {
+  return adminFetch('/api/admin/session', {
+    method: 'POST',
+    headers: { 'x-suan-client-id': getAdminClientId() },
+    body: JSON.stringify({ pw: passcode }),
+  });
+}
+
+export function logoutAdmin(): Promise<{ authenticated: false }> {
+  return adminFetch('/api/admin/session', { method: 'DELETE' });
+}
+
+export function listAdminQuestions(filters: AdminQuestionFilters): Promise<AdminQuestionList> {
+  const params = new URLSearchParams({
+    page: String(filters.page),
+    pageSize: String(filters.pageSize),
+  });
+  for (const [key, value] of Object.entries(filters)) {
+    if (key === 'page' || key === 'pageSize' || !value) continue;
+    params.set(key, String(value));
+  }
+  return adminFetch(`/api/admin/questions?${params.toString()}`);
+}
+
+export function updateAdminQuestion(
+  questionId: string,
+  patch: QuestionPatch,
+): Promise<{ question: Question; meta: QuestionBankMeta }> {
+  return adminFetch(`/api/admin/questions/${encodeURIComponent(questionId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+export function batchSetAdminQuestionStatus(
+  ids: string[],
+  enable: boolean,
+  reason?: string,
+): Promise<{ ok: true; updated: number; meta: QuestionBankMeta }> {
+  return adminFetch('/api/admin/questions/batch-status', {
+    method: 'POST',
+    body: JSON.stringify({ ids, enable, ...(reason ? { reason } : {}) }),
+  });
+}
+
+export function publishAdminQuestionBank(expectedDraftRevision: number) {
+  return adminFetch<{
+    meta: QuestionBankMeta;
+    stats: { total: number; enabled: number; disabled: number };
+  }>('/api/admin/questions/publish', {
+    method: 'POST',
+    body: JSON.stringify({ expectedDraftRevision }),
+  });
+}
+
+export function listQuestionAudit(limit = 30): Promise<{ data: QuestionAuditEntry[] }> {
+  return adminFetch(`/api/admin/question-audit?limit=${limit}`);
+}
+
+export function exportAdminQuestions(): Promise<{ data: Question[]; meta: QuestionBankMeta }> {
+  return adminFetch('/api/admin/questions/export');
+}

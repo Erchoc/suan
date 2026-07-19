@@ -7,14 +7,29 @@
   "workers_dev": true,
   "preview_urls": true,
   "secrets": {
-    "required": ["BASE_URL", "API_KEY", "MODEL", "AI_PROTOCOL"]
+    "required": ["BASE_URL", "API_KEY", "MODEL", "AI_PROTOCOL", "ADMIN_SESSION_SECRET"]
   },
+  "d1_databases": [
+    {
+      "binding": "CONTENT_DB",
+      "database_name": "suan-starter-content",
+      "migrations_dir": "migrations"
+    }
+  ],
   "ratelimits": [
     {
       "name": "AI_RATE_LIMITER",
       "namespace_id": "20260718",
       "simple": {
         "limit": 12,
+        "period": 60
+      }
+    },
+    {
+      "name": "ADMIN_RATE_LIMITER",
+      "namespace_id": "2026071802",
+      "simple": {
+        "limit": 8,
         "period": 60
       }
     }
@@ -47,14 +62,30 @@
         }
       ],
       "secrets": {
-        "required": ["BASE_URL", "API_KEY", "MODEL", "AI_PROTOCOL"]
+        "required": ["BASE_URL", "API_KEY", "MODEL", "AI_PROTOCOL", "ADMIN_SESSION_SECRET"]
       },
+      "d1_databases": [
+        {
+          "binding": "CONTENT_DB",
+          "database_name": "suan-content",
+          "database_id": "a19b97cb-b2c1-486e-ac6c-8861cf5cd3c1",
+          "migrations_dir": "migrations"
+        }
+      ],
       "ratelimits": [
         {
           "name": "AI_RATE_LIMITER",
           "namespace_id": "20260719",
           "simple": {
             "limit": 12,
+            "period": 60
+          }
+        },
+        {
+          "name": "ADMIN_RATE_LIMITER",
+          "namespace_id": "2026071902",
+          "simple": {
+            "limit": 8,
             "period": 60
           }
         }

@@ -24,7 +24,7 @@
  *
  * Progress files:
  *   gen-progress.json  - Status and attempt counts for each knowledge point.
- *   questions.json     - Canonical question data, updated after each success.
+ *   data/questions.seed.json - Canonical seed data, updated after each success.
  *   gen-errors.log     - Failure details.
  */
 
@@ -36,7 +36,7 @@ import { readAIConfig, requestAIText } from './aiText.ts';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const GRAPH_PATH = path.join(ROOT, 'src/data/knowledge-graph.json');
-const QUESTIONS_PATH = path.join(ROOT, 'public/questions.json');
+const QUESTIONS_PATH = path.join(ROOT, 'data/questions.seed.json');
 const LOGS_DIR = path.join(ROOT, 'logs');
 const PROGRESS_PATH = path.join(ROOT, 'gen-progress.json');
 const ERROR_LOG = path.join(LOGS_DIR, 'gen-errors.log');
@@ -251,7 +251,7 @@ if (historyFailedInScope.length > 0) {
 }
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 console.log(`  📚 Target knowledge points: ${targetKPs.length}`);
-console.log(`     Complete: ${doneKPIds.size} already in questions.json`);
+console.log(`     Complete: ${doneKPIds.size} already in questions.seed.json`);
 console.log(
   `     Pending:  ${pendingKPs.length}${historyFailedInScope.length > 0 ? ` including ${historyFailedInScope.length} retries` : ''}`,
 );

@@ -1,11 +1,15 @@
+import { applyD1Migrations, type D1Migration, env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from './index';
 
 const CLIENT_ID = '00000000-0000-4000-8000-000000000001';
+const NOW = Date.parse('2026-07-19T00:00:00.000Z');
 
 const allowRateLimiter: RateLimit = {
   limit: async () => ({ success: true }),
 };
+
+const testEnv = env as CloudflareBindings & { TEST_MIGRATIONS: D1Migration[] };
 
 function createEnv(overrides: Partial<CloudflareBindings> = {}): CloudflareBindings {
   return {
@@ -13,7 +17,10 @@ function createEnv(overrides: Partial<CloudflareBindings> = {}): CloudflareBindi
     BASE_URL: 'https://api.deepseek.com',
     MODEL: 'deepseek-chat',
     AI_PROTOCOL: 'openai-chat',
+    ADMIN_SESSION_SECRET: 'test-admin-session-secret-that-is-long-enough',
+    CONTENT_DB: testEnv.CONTENT_DB,
     AI_RATE_LIMITER: allowRateLimiter,
+    ADMIN_RATE_LIMITER: allowRateLimiter,
     ...overrides,
   };
 }
@@ -54,7 +61,68 @@ function chatRequest(body: unknown = chatBody(), headers: HeadersInit = {}): Req
   };
 }
 
-beforeEach(() => {
+async function seedQuestionBank(id = '1-1-01'): Promise<void> {
+  const now = '2026-07-19T00:00:00.000Z';
+  await testEnv.CONTENT_DB.batch([
+    testEnv.CONTENT_DB.prepare(
+      `INSERT INTO questions
+          (id, kp_id, kp_name, grade, semester, difficulty, type, question, blanks_json,
+           blank_types_json, choices_json, correct_choice, solution, common_mistake, hint,
+           enable, check_message, created_at, updated_at)
+         VALUES (?, '1-1', 'Counting', 'Grade 1', 'First semester', 'easy', 'fill_blank',
+           'What is 1 + 1? ____', '["2"]', '["number"]', NULL, NULL, 'Add the numbers.',
+           'Skipping one addend.', 'Count one more.', 1, NULL, ?, ?)`,
+    ).bind(id, now, now),
+    testEnv.CONTENT_DB.prepare(
+      `INSERT INTO published_questions
+          (id, kp_id, kp_name, grade, semester, difficulty, type, question, blanks_json,
+           blank_types_json, choices_json, correct_choice, solution, common_mistake, hint,
+           enable, check_message, published_revision, published_at)
+         VALUES (?, '1-1', 'Counting', 'Grade 1', 'First semester', 'easy', 'fill_blank',
+           'What is 1 + 1? ____', '["2"]', '["number"]', NULL, NULL, 'Add the numbers.',
+           'Skipping one addend.', 'Count one more.', 1, NULL, 1, ?)`,
+    ).bind(id, now),
+    testEnv.CONTENT_DB.prepare(
+      `UPDATE question_bank_meta SET draft_revision = 1, published_revision = 1,
+          source_sha256 = 'test-source', imported_at = ?, published_at = ?, updated_at = ?
+         WHERE singleton_id = 1`,
+    ).bind(now, now, now),
+  ]);
+}
+
+function adminSessionRequest(passcode: string, headers: HeadersInit = {}): RequestInit {
+  return {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-suan-client-id': CLIENT_ID,
+      ...headers,
+    },
+    body: JSON.stringify({ pw: passcode }),
+  };
+}
+
+async function loginAdmin(app: ReturnType<typeof createApp>, bindings = createEnv()) {
+  const response = await app.request('/api/admin/session', adminSessionRequest('0719'), bindings);
+  expect(response.status).toBe(200);
+  const setCookie = response.headers.get('set-cookie');
+  expect(setCookie).toContain('HttpOnly');
+  return setCookie?.split(';')[0] ?? '';
+}
+
+beforeEach(async () => {
+  await applyD1Migrations(testEnv.CONTENT_DB, testEnv.TEST_MIGRATIONS);
+  await testEnv.CONTENT_DB.batch([
+    testEnv.CONTENT_DB.prepare('DELETE FROM question_audit_logs'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM question_bank_releases'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM published_questions'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM questions'),
+    testEnv.CONTENT_DB.prepare(
+      `UPDATE question_bank_meta SET draft_revision = 0, published_revision = 0,
+       source_sha256 = NULL, imported_at = NULL, published_at = NULL,
+       updated_at = CURRENT_TIMESTAMP WHERE singleton_id = 1`,
+    ),
+  ]);
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
@@ -89,6 +157,234 @@ describe('Suan Hono Worker', () => {
     await expect(response.json()).resolves.toEqual({
       error: { code: 'NOT_FOUND', message: '接口不存在' },
       traceId: CLIENT_ID,
+    });
+  });
+
+  it('reports an uninitialized question bank with a structured fallback signal', async () => {
+    const response = await createApp({ randomUUID: () => CLIENT_ID }).request(
+      '/api/questions',
+      {},
+      createEnv(),
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'QUESTION_BANK_NOT_READY' },
+    });
+  });
+
+  it('serves published questions with versioned caching and single-question lookup', async () => {
+    await seedQuestionBank();
+    const app = createApp({ randomUUID: () => CLIENT_ID });
+    const response = await app.request('/api/questions', {}, createEnv());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('etag')).toBe('W/"questions-1"');
+    expect(response.headers.get('cache-control')).toContain('max-age=300');
+    await expect(response.json()).resolves.toMatchObject({
+      total: 1,
+      version: 1,
+      source: 'd1',
+      data: [{ id: '1-1-01', enable: true, type: 'fill_blank' }],
+    });
+
+    const cached = await app.request(
+      '/api/questions',
+      { headers: { 'if-none-match': 'W/"questions-1"' } },
+      createEnv(),
+    );
+    expect(cached.status).toBe(304);
+
+    const single = await app.request('/api/questions/1-1-01', {}, createEnv());
+    expect(single.status).toBe(200);
+    await expect(single.json()).resolves.toMatchObject({ data: { id: '1-1-01' }, version: 1 });
+  });
+
+  it('creates, verifies, and clears a protected admin session', async () => {
+    const app = createApp({ now: () => NOW, randomUUID: () => CLIENT_ID });
+    const bindings = createEnv();
+
+    const rejected = await app.request('/api/admin/session', adminSessionRequest('0718'), bindings);
+    expect(rejected.status).toBe(401);
+
+    const cookie = await loginAdmin(app, bindings);
+    const session = await app.request('/api/admin/session', { headers: { cookie } }, bindings);
+    await expect(session.json()).resolves.toEqual({ authenticated: true });
+
+    const logout = await app.request(
+      '/api/admin/session',
+      { method: 'DELETE', headers: { cookie } },
+      bindings,
+    );
+    expect(logout.headers.get('set-cookie')).toContain('Max-Age=0');
+    await expect(logout.json()).resolves.toEqual({ authenticated: false });
+  });
+
+  it('protects admin login with origin checks, configuration checks, and rate limits', async () => {
+    const app = createApp({ now: () => NOW, randomUUID: () => CLIENT_ID });
+    const crossOrigin = await app.request(
+      'https://suan.longye.site/api/admin/session',
+      adminSessionRequest('0719', {
+        origin: 'https://evil.example',
+      }),
+      createEnv(),
+    );
+    expect(crossOrigin.status).toBe(403);
+
+    const unconfigured = await app.request(
+      '/api/admin/session',
+      adminSessionRequest('0719'),
+      createEnv({ ADMIN_SESSION_SECRET: '' }),
+    );
+    expect(unconfigured.status).toBe(503);
+
+    const rateLimited = await app.request(
+      '/api/admin/session',
+      adminSessionRequest('0719'),
+      createEnv({ ADMIN_RATE_LIMITER: { limit: async () => ({ success: false }) } }),
+    );
+    expect(rateLimited.status).toBe(429);
+    expect(rateLimited.headers.get('retry-after')).toBe('60');
+  });
+
+  it('keeps edits in draft until an authenticated publish and records audit history', async () => {
+    await seedQuestionBank();
+    const app = createApp({ now: () => NOW, randomUUID: () => CLIENT_ID });
+    const bindings = createEnv();
+
+    const unauthorized = await app.request('/api/admin/questions', {}, bindings);
+    expect(unauthorized.status).toBe(401);
+
+    const cookie = await loginAdmin(app, bindings);
+    const list = await app.request(
+      '/api/admin/questions?page=1&pageSize=20&query=Counting&status=enabled',
+      { headers: { cookie } },
+      bindings,
+    );
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject({
+      total: 1,
+      stats: { total: 1, enabled: 1, disabled: 0 },
+      meta: { draftRevision: 1, publishedRevision: 1 },
+    });
+
+    const update = await app.request(
+      '/api/admin/questions/1-1-01',
+      {
+        method: 'PATCH',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          question: 'Updated draft question ____',
+          enable: false,
+          checkMessage: 'Answer needs review',
+        }),
+      },
+      bindings,
+    );
+    expect(update.status).toBe(200);
+    await expect(update.json()).resolves.toMatchObject({
+      question: { question: 'Updated draft question ____', enable: false },
+      meta: { draftRevision: 2, publishedRevision: 1 },
+    });
+
+    const stillPublished = await app.request('/api/questions/1-1-01', {}, bindings);
+    expect(stillPublished.status).toBe(200);
+    await expect(stillPublished.json()).resolves.toMatchObject({
+      data: { question: 'What is 1 + 1? ____', enable: true },
+    });
+
+    const stalePublish = await app.request(
+      '/api/admin/questions/publish',
+      {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedDraftRevision: 1 }),
+      },
+      bindings,
+    );
+    expect(stalePublish.status).toBe(409);
+
+    const publish = await app.request(
+      '/api/admin/questions/publish',
+      {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedDraftRevision: 2 }),
+      },
+      bindings,
+    );
+    expect(publish.status).toBe(200);
+    await expect(publish.json()).resolves.toMatchObject({
+      meta: { draftRevision: 2, publishedRevision: 2 },
+      stats: { total: 1, enabled: 0, disabled: 1 },
+    });
+
+    const removedFromRuntime = await app.request('/api/questions/1-1-01', {}, bindings);
+    expect(removedFromRuntime.status).toBe(404);
+
+    const audit = await app.request(
+      '/api/admin/question-audit?limit=10',
+      { headers: { cookie } },
+      bindings,
+    );
+    await expect(audit.json()).resolves.toMatchObject({
+      data: [{ action: 'publish' }, { action: 'update', questionId: '1-1-01' }],
+    });
+
+    const exported = await app.request(
+      '/api/admin/questions/export',
+      { headers: { cookie } },
+      bindings,
+    );
+    expect(exported.headers.get('content-disposition')).toContain('questions-r2.json');
+    await expect(exported.json()).resolves.toMatchObject({
+      data: [{ id: '1-1-01', enable: false }],
+    });
+  });
+
+  it('supports bounded batch status changes and rejects invalid admin filters', async () => {
+    await seedQuestionBank('1-1-01');
+    await seedQuestionBank('1-1-02');
+    const app = createApp({ now: () => NOW, randomUUID: () => CLIENT_ID });
+    const bindings = createEnv();
+    const cookie = await loginAdmin(app, bindings);
+
+    const invalidFilter = await app.request(
+      '/api/admin/questions?difficulty=impossible',
+      { headers: { cookie } },
+      bindings,
+    );
+    expect(invalidFilter.status).toBe(400);
+
+    const missingReason = await app.request(
+      '/api/admin/questions/batch-status',
+      {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ ids: ['1-1-01', '1-1-02'], enable: false }),
+      },
+      bindings,
+    );
+    expect(missingReason.status).toBe(400);
+
+    const batch = await app.request(
+      '/api/admin/questions/batch-status',
+      {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ids: ['1-1-01', '1-1-02'],
+          enable: false,
+          reason: 'Duplicate content',
+        }),
+      },
+      bindings,
+    );
+    expect(batch.status).toBe(200);
+    await expect(batch.json()).resolves.toMatchObject({
+      ok: true,
+      updated: 2,
+      meta: { draftRevision: 2 },
     });
   });
 

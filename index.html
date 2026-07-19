@@ -12,6 +12,17 @@
     <meta id="color-scheme" name="color-scheme" content="light" />
     <meta name="description" content="小学数学知识图谱与智能诊断平台" />
     <script>
+      // Remove the console passcode before loading external assets or application code.
+      (() => {
+        var url = new URL(window.location.href);
+        if (url.pathname !== '/console') return;
+        var passcode = url.searchParams.get('pw');
+        if (!passcode) return;
+        window.__SUAN_CONSOLE_PASSCODE__ = passcode;
+        url.searchParams.delete('pw');
+        window.history.replaceState(null, '', url);
+      })();
+
       // Synchronize the theme before the first paint so Safari samples the correct color.
       (() => {
         var theme = 'light';

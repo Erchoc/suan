@@ -304,8 +304,10 @@ function BottomTabBar() {
 export default function Nav() {
   const isMobile = useIsMobile();
   const isPWA = useIsPWA();
+  const { pathname } = useLocation();
 
   if (!isMobile) return <DesktopNav />;
+  if (pathname === '/console') return <MobileStatusBar isPWA={isPWA} />;
   return (
     <>
       <MobileStatusBar isPWA={isPWA} />

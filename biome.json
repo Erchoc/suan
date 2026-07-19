@@ -14,6 +14,7 @@
       "!!**/.wrangler",
       "!!**/coverage",
       "!!public",
+      "!!data/**/*.json",
       "!!src/data/**/*.json",
       "!!worker-configuration.d.ts"
     ]

@@ -1,165 +1,120 @@
-# 题库管理模块 — 设计文档
+# 题库资产与管理后台
 
-> 文档版本：v1.0 · 2026-03-14
-> 状态：规划中（尚未实现）
+> 文档版本：v2.0 · 2026-07-19
+> 状态：已实现；生产环境需单独执行 D1 迁移、初始化并配置 `ADMIN_SESSION_SECRET` 后启用。
 
----
+## 一、定位
 
-## 一、定位与权限
+题库不再只是随前端发布的 JSON 文件，而是一套可查询、可编辑、可审核、可发布、可追踪的数据资产。
 
-**目标用户**：平台管理员
+模块入口为 `/console?pw=MMDD`，当前面向单管理员。核心能力包括：
 
-**权限判断**：URL 参数 `?admin=true`（临时方案，后续接入用户系统后替换为 JWT Role）
+- 题目统计、分页、搜索与多条件筛选。
+- 题干、答案、选项、解析、提示和元数据编辑。
+- 单题及批量启用/禁用，禁用时强制记录质量原因。
+- 草稿修订与学生端发布版本分离。
+- 当前草稿 JSON 导出与最近审计记录。
+- 桌面表格和移动卡片两种管理布局。
 
-**管理员入口触发逻辑**：
-- 任意页面 URL 含 `?admin=true` 时，顶部导航显示「🔑 题库管理」链接
-- 直接访问 `/admin/questions` 但无 `?admin=true`，重定向到首页
+## 二、数据边界
 
-**本期权限范围**（只读 + 开关）：
-- ✅ 查看题目列表、搜索、筛选
-- ✅ 预览单道题的答题效果
-- ✅ 单条 enable / disable 切换
-- ✅ 批量 enable / disable
-- ❌ 编辑题目内容（后续接入用户后台后实现）
-- ❌ 新增/删除题目（走脚本）
-
----
-
-## 二、路由
-
-```
-/admin/questions          题库管理主页（列表 + 筛选）
-```
-
----
-
-## 三、页面布局
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  Nav（含题库管理高亮）                                    │
-├──────────────┬──────────────────────────────────────────┤
-│              │  🔍 搜索题目内容...          [批量操作▾]  │
-│  筛选面板    ├──────────────────────────────────────────┤
-│              │  统计栏：总 4735 | 启用 3852 | 禁用 883  │
-│  年级        ├──────────────────────────────────────────┤
-│  学期        │  ☐  ID        知识点    年级  难度  类型  状态   操作  │
-│  知识点      │  ☐  1-1-01   数数与计数  一  easy  填空  ✅     👁️   │
-│  难度        │  ☐  1-1-02   数数与计数  一  easy  填空  ✅     👁️   │
-│  题型        │  ☐  2-3-c01  加减混合   二  med   选择  ❌🔴   👁️   │
-│  状态        │    ...                                    │
-│              ├──────────────────────────────────────────┤
-│  [重置筛选]  │  < 上一页   第 1 / 47 页   下一页 >       │
-└──────────────┴──────────────────────────────────────────┘
+```text
+data/questions.seed.json
+        │ 幂等初始化，不作为前端资源
+        ▼
+Cloudflare D1
+├── questions                 当前可编辑草稿
+├── published_questions       学生端只读发布快照
+├── question_bank_meta        草稿/发布修订和来源哈希
+├── question_bank_releases    发布记录
+└── question_audit_logs       编辑、批量、发布审计
 ```
 
----
+后台保存只修改 `questions` 并增加 `draft_revision`。只有管理员点击发布且提交的期望修订仍然最新时，Worker 才会原子刷新 `published_questions`，把 `published_revision` 推进到当前草稿。
 
-## 四、筛选面板
+该模型保证：
 
-| 筛选项 | 可选值 |
-|--------|--------|
-| 年级 | 全部 / 一至六年级 |
-| 学期 | 全部 / 上学期 / 下学期 |
-| 知识点 | 文本搜索（知识点名或 ID） |
-| 难度 | 全部 / easy / medium / hard |
-| 题型 | 全部 / 填空 / 选择 / 综合 |
-| 状态 | 全部 / 已启用 / 已禁用 / 未校验 |
+1. 正在编辑的答案不会立即进入学生练习。
+2. 并发编辑后使用旧修订发布会返回 `409 CONFLICT`。
+3. 学生端只读取已发布快照，D1 未迁移或未导入时返回明确错误。
+4. 初始化脚本使用 `INSERT OR IGNORE`，重复运行不会覆盖后台维护结果。
 
-所有筛选项联动，实时更新列表和统计栏。
+## 三、鉴权与安全
 
----
+URL 参数、隐藏导航或直接访问路由都不作为权限判断。
 
-## 五、题目列表
+管理员流程：
 
-**分页**：每页 50 条，支持键盘翻页（← →）
+1. 浏览器从 `/console?pw=MMDD` 读取上海时区当天口令并立即清除 URL 参数，再向 `POST /api/admin/session` 提交。
+2. Worker 对登录接口执行独立限流，并用固定长度哈希比较密钥。
+3. 验证通过后签发最长 8 小时的 HMAC 会话，保存为 HttpOnly、SameSite=Strict Cookie。
+4. 管理接口在 Worker 端验证会话；写接口另外执行同源校验。
+5. 浏览器不把管理员密钥或会话写入 `localStorage`。
 
-**每行字段**：
-- 复选框（批量选择）
-- 题目 ID
-- 知识点名（hover 显示完整路径：年级 > 领域 > 单元）
-- 年级标签（带年级色）
-- 难度标签（easy=绿 / medium=黄 / hard=红橙）
-- 题型标签
-- 状态：
-  - `✅ 启用`（绿色）
-  - `❌ 禁用`（红色，hover 显示 disableReason tooltip）
-  - `⬜ 未校验`（灰色）
-- 操作：👁️ 预览按钮
+`ADMIN_SESSION_SECRET` 至少 24 个字符，仅用于签名会话，生产环境只能放在 Worker Secret，不能进入 Wrangler vars、源码、日志或截图。当天 `MMDD` 是简易个人维护入口，不用于多管理员权限管理。
 
-**状态切换**：点击状态区域直接切换 enable，即时写入（前端状态 + 下载更新后的 JSON 提示，或后续接 API）
+## 四、已实现接口
 
-> **注**：`disableReason` 字段需同步写入 `questions.json`（当前 checkQuestions.ts 只写 log 文件）。需在脚本中同步更新，见第八节。
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/questions` | 返回已发布且启用的题目、版本号与 ETag |
+| `GET` | `/api/questions/:id` | 返回单道已发布题目 |
+| `POST` | `/api/admin/session` | 管理员登录 |
+| `GET` | `/api/admin/session` | 检查当前会话 |
+| `DELETE` | `/api/admin/session` | 清除当前会话 |
+| `GET` | `/api/admin/questions` | 分页、搜索、筛选草稿题库 |
+| `PATCH` | `/api/admin/questions/:id` | 编辑题目与质量状态 |
+| `POST` | `/api/admin/questions/batch-status` | 批量启停，单次最多 100 道 |
+| `POST` | `/api/admin/questions/publish` | 按期望草稿修订发布 |
+| `GET` | `/api/admin/questions/export` | 导出当前草稿 JSON |
+| `GET` | `/api/admin/question-audit` | 读取最近审计记录 |
 
----
+接口错误保持统一结构：
 
-## 六、批量操作
-
-顶部「批量操作」下拉菜单：
-- 全选当前页 / 全选全部筛选结果
-- 批量启用 / 批量禁用
-- 清除选择
-
-操作前弹确认对话框：「即将禁用 XX 道题，确认？」
-
----
-
-## 七、题目预览
-
-点击👁️ → 打开右侧抽屉（drawer）：
-- 使用已有 `QuestionCard` 组件，与考试界面完全一致
-- 显示题目文字、选项/填空框、难度/知识点标签
-- 展示 solution（解析）和 common_mistake
-- 底部显示 disableReason（若已禁用）
-
----
-
-## 八、脚本变更需求
-
-`scripts/checkQuestions.ts` 需新增：将 disableReason 写入 `questions.json` 对应题目：
-
-```typescript
-// 当前：只写 log
-logEntry(`DISABLED | ${q.id} | ... | 原因: ${reason}`);
-
-// 新增：同时写入 question 对象
-allQuestions[idx].disableReason = reason;  // 新字段
+```json
+{
+  "error": { "code": "BAD_REQUEST", "message": "禁用题目时必须填写质量原因" },
+  "traceId": "..."
+}
 ```
 
-对应 `types/index.ts` 中 `Question` 接口新增：
-```typescript
-disableReason?: string;  // checkQuestions.ts 写入，admin UI 展示
+## 五、题目字段与校验
+
+后台沿用真实 `Question` 契约，不引入重复的禁用原因字段：
+
+- `checkMessage`：题目质量问题或禁用原因。
+- `blank_types`：与 `blanks` 一一对应，可选 `number`、`choice`、`text`。
+- `choices` 与 `correctChoice`：选择题或综合题的选项和正确标签。
+- `enable`：`false` 时不会进入学生端已发布可用题目。
+
+服务端会再次校验题型与答案结构。例如选择题必须存在选项和有效正确标签；填空题必须至少有一个答案；禁用题必须有质量原因。前端校验只是体验优化，不能替代 Worker 校验。
+
+## 六、初始化与维护
+
+本地首次使用：
+
+```bash
+pnpm db:migrate:local
+pnpm db:seed:local
+pnpm dev
 ```
 
----
+维护者生产环境：
 
-## 九、管理员状态持久化（规划）
-
-本模块目前仍是规划，仓库中尚未实现题库管理页面、管理接口或管理员状态持久化。未来接口应扩展现有 `worker/index.ts` 中的 Hono Worker API，与当前全栈部署保持一致。
-
-**拟新增接口**：
-
-```
-POST /api/admin/questions/toggle
-Body: { id: string, enable: boolean }
-→ 在外部持久化存储中更新对应题目的 enable 状态
-
-POST /api/admin/questions/batch-toggle
-Body: { ids: string[], enable: boolean }
-→ 在外部持久化存储中批量更新
+```bash
+pnpm db:migrate:production
+pnpm db:seed:production
+pnpm exec wrangler secret bulk .env --env production
 ```
 
-**持久化要求**：`public/questions.json` 是随静态资源发布的题库基线，Worker 运行时不能把管理状态写回仓库文件。实现前需确定外部持久化方案（例如 D1），保存题目启停状态、禁用原因和必要的审计字段，并定义题库版本升级时的迁移策略。
+`scripts/seedQuestionBank.ts` 从非公开的 `data/questions.seed.json` 计算 SHA-256，生成被 Git 忽略的 `.wrangler/question-bank-seed.sql`。生成器把 SQL 控制在本地与远端 D1 都可执行的安全长度内，并记录题量、启用量和来源哈希。
 
-**权限保护**：URL 中的 `?admin=true` 只能控制界面入口，不能作为接口鉴权。未来管理 API 必须在 Worker 端验证真实管理员身份与权限；具体认证方案在实现设计中确定。
+修改 D1 binding 后必须运行 `pnpm cf-typegen`；新增 schema 变更必须创建新迁移，禁止直接修改已应用迁移。
 
-**前端调用**：题库管理页切换 enable 时，调用同源管理 API；成功后更新本地状态。`pnpm dev` 已通过 Cloudflare Vite 插件同时提供前端与 Hono Worker API，不需要独立接口进程。
+## 七、当前不包含
 
----
-
-## 十、不在本期范围
-
-- 题目内容编辑
-- 手动新增题目
-- 操作日志记录
-- 多管理员权限
+- 删除题目；先通过禁用保留审计与历史引用。
+- 多管理员、角色权限和组织级内容隔离。
+- 历史发布快照完整回滚；当前记录每次发布元数据，但只保留一份学生端快照。
+- 题库图片资产；未来图片应放 R2，D1 仅保存引用和元数据。
+- 考试、复习与预习 Session 云端持久化；这些状态目前仍在浏览器本地。

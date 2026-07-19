@@ -2,6 +2,7 @@ import { AlertTriangle, BookOpen, CheckCircle2, Hash, Lightbulb, XCircle } from 
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import Badge from '../../components/ui/Badge';
+import { loadQuestion } from '../../data/questions';
 import type { Question, QuestionType } from '../../types';
 import { stripLatex } from '../../utils/latex';
 
@@ -235,10 +236,8 @@ export default function QuestionDetailPage() {
       setLoading(false);
       return;
     }
-    fetch('/questions.json')
-      .then(r => r.json())
-      .then((data: Question[]) => {
-        const found = data.find(q => q.id === questionId);
+    loadQuestion(questionId)
+      .then(found => {
         if (found) setQuestion(found);
         else setNotFound(true);
       })

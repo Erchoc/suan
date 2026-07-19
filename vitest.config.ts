@@ -1,10 +1,13 @@
-import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
 
 process.env.API_KEY ??= 'test-api-key';
 process.env.BASE_URL ??= 'https://api.deepseek.com';
 process.env.MODEL ??= 'deepseek-v4-flash';
 process.env.AI_PROTOCOL ??= 'openai-chat';
+process.env.ADMIN_SESSION_SECRET ??= 'test-admin-session-secret-that-is-long-enough';
+
+const questionBankMigrations = await readD1Migrations('./migrations');
 
 const dataCoverageThresholds = {
   statements: 95,
@@ -46,6 +49,8 @@ export default defineConfig({
           API_KEY: 'test-api-key',
           MODEL: 'deepseek-v4-flash',
           AI_PROTOCOL: 'openai-chat',
+          ADMIN_SESSION_SECRET: 'test-admin-session-secret-that-is-long-enough',
+          TEST_MIGRATIONS: questionBankMigrations,
         },
       },
     }),
@@ -57,6 +62,8 @@ export default defineConfig({
       reporter: ['text', 'json-summary', 'lcov'],
       include: [
         'worker/index.ts',
+        'worker/adminAuth.ts',
+        'worker/questionBank.ts',
         'src/data/questions.ts',
         'src/data/kpIndex.ts',
         'src/utils/aiChat.ts',
@@ -80,6 +87,13 @@ export default defineConfig({
           branches: 65,
           functions: 90,
           lines: 80,
+        },
+        'worker/adminAuth.ts': utilityCoverageThresholds,
+        'worker/questionBank.ts': {
+          statements: 90,
+          branches: 80,
+          functions: 90,
+          lines: 90,
         },
         'src/data/questions.ts': dataCoverageThresholds,
         'src/data/kpIndex.ts': dataCoverageThresholds,

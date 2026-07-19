@@ -55,7 +55,9 @@ describe('question data loading', () => {
     expect(concurrentLoad).toBe(firstLoad);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     resolveFetch?.(
-      jsonResponse([enabledQuestion, disabledQuestion, invalidQuestion, null, 'invalid-question']),
+      jsonResponse({
+        data: [enabledQuestion, disabledQuestion, invalidQuestion, null, 'invalid-question'],
+      }),
     );
 
     const loaded = await firstLoad;
@@ -73,20 +75,77 @@ describe('question data loading', () => {
     const question = createQuestion();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ error: 'unavailable' }, 503))
-      .mockResolvedValueOnce(jsonResponse([question]));
+      .mockResolvedValueOnce(jsonResponse({ error: 'not initialized' }, 503))
+      .mockResolvedValueOnce(jsonResponse({ data: [question] }));
     vi.stubGlobal('fetch', fetchMock);
     const { loadQuestions } = await import('./questions');
 
-    await expect(loadQuestions()).rejects.toThrow('题库加载失败：503');
+    await expect(loadQuestions()).rejects.toThrow('D1 question bank unavailable: 503');
     await expect(loadQuestions()).resolves.toEqual([question]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(call => call[0])).toEqual(['/api/questions', '/api/questions']);
   });
 
   it('rejects a response whose top-level value is not an array', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ questions: [] })));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ data: { questions: [] } })));
     const { loadQuestions } = await import('./questions');
 
     await expect(loadQuestions()).rejects.toThrow('题库格式错误');
+  });
+
+  it('rejects a malformed published question envelope', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse('invalid-envelope'));
+    vi.stubGlobal('fetch', fetchMock);
+    const { loadQuestions } = await import('./questions');
+
+    await expect(loadQuestions()).rejects.toThrow('D1 question bank response is invalid');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('loads a single published question and preserves a D1 404', async () => {
+    const question = createQuestion();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ data: question }))
+      .mockResolvedValueOnce(jsonResponse({ error: 'missing' }, 404));
+    vi.stubGlobal('fetch', fetchMock);
+    const { loadQuestion } = await import('./questions');
+
+    await expect(loadQuestion(question.id)).resolves.toEqual(question);
+    await expect(loadQuestion('missing')).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('serves single-question reads from the populated question cache', async () => {
+    const question = createQuestion();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ data: [question] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { loadQuestion, loadQuestions } = await import('./questions');
+
+    await loadQuestions();
+    await expect(loadQuestion(question.id)).resolves.toEqual(question);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a malformed single-question envelope', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(null));
+    vi.stubGlobal('fetch', fetchMock);
+    const { loadQuestion } = await import('./questions');
+
+    await expect(loadQuestion('question-1')).rejects.toThrow('D1 question response is invalid');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('ignores invalid and disabled single-question records', async () => {
+    const disabled = createQuestion({ enable: false });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 'missing-kp-id' } }))
+      .mockResolvedValueOnce(jsonResponse({ data: disabled }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { loadQuestion } = await import('./questions');
+
+    await expect(loadQuestion('invalid')).resolves.toBeUndefined();
+    await expect(loadQuestion(disabled.id)).resolves.toBeUndefined();
   });
 });

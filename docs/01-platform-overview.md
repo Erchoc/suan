@@ -1,7 +1,7 @@
 # 算道 · 小学数学平台现状总览
 
-> 文档版本：v2.0 · 2026-07-18
-> 状态：描述当前已经实现并上线的功能；规划内容以其他明确标注“规划”的文档为准。
+> 文档版本：v2.1 · 2026-07-19
+> 状态：描述当前仓库已实现能力；D1 题库后台仍需完成生产迁移、初始化和发布后才会出现在现网。
 
 ## 一、产品定位
 
@@ -22,12 +22,14 @@
 浏览器
 ├── React 单页应用
 │   ├── 页面、知识图谱与本地学习状态
-│   └── public/questions.json 静态题库
+│   ├── D1 已发布题库
+│   └── /console 题库资产后台
 └── 同源 /api/*
     └── Hono Cloudflare Worker
         ├── GET /api/health
-        └── POST /api/ai/chat
-            └── 可配置 AI 上游（Chat Completions / Responses / Anthropic Messages）
+        ├── GET /api/questions 与 /api/admin/*
+        │   └── Cloudflare D1
+        └── POST /api/ai/chat → 可配置 AI 上游
 ```
 
 | 层级       | 当前技术                                       |
@@ -38,6 +40,7 @@
 | 状态       | Zustand 与浏览器 `localStorage`                |
 | 图谱与图表 | `@xyflow/react`、Dagre、Recharts               |
 | 接口       | Hono 4、Cloudflare Workers                     |
+| 内容数据   | Cloudflare D1；非公开 JSON 仅用于首次初始化    |
 | 静态资源   | Cloudflare Workers Static Assets、单页应用回退 |
 | 测试与检查 | Vitest、Workers 测试池、Biome、TypeScript      |
 
@@ -60,6 +63,7 @@
 | `/preview`                   | 预习入口               |
 | `/preview/:sessionId`        | 预习会话               |
 | `/question/:questionId`      | 题目详情               |
+| `/console`                   | 题库资产管理后台       |
 
 所有页面路由均使用懒加载；Cloudflare 的单页应用回退保证直接刷新深层路由仍返回前端入口。
 
@@ -68,10 +72,10 @@
 | 数据   | 当前规模与来源                                       |
 | ------ | ---------------------------------------------------- |
 | 知识点 | `src/data/knowledge-graph.json`，实际 241 个         |
-| 题库   | `public/questions.json`，4,735 道，其中 3,852 道启用 |
+| 题库   | D1 管理源与发布快照；静态基线 4,735 道，其中 3,852 道启用 |
 | 知识卡 | `src/data/knowledge-cards.json`                      |
 
-`src/data/kpIndex.ts` 在运行时构建知识点索引，提供知识点上下文、完整前置链、后续节点和按年级/学期范围查询。题库通过统一的异步加载层读取，避免把约 4.2 MB 数据打进首屏脚本。
+`src/data/kpIndex.ts` 在运行时构建知识点索引，提供知识点上下文、完整前置链、后续节点和按年级/学期范围查询。学生端题库通过统一异步层读取 D1 已发布版本；约 4.2 MB 的初始化 seed 位于 `data/questions.seed.json`，不会进入前端构建或静态资源。
 
 ## 五、状态与持久化
 
@@ -88,11 +92,13 @@
 ## 六、当前接口
 
 - `GET /api/health`：报告 Worker 与 AI 配置状态。
+- `GET /api/questions`、`GET /api/questions/:id`：返回 D1 已发布题库及单题。
+- `/api/admin/*`：短时签名会话、题库分页筛选、编辑、批量启停、发布、导出和审计。
 - `POST /api/ai/chat`：校验同源、输入大小与消息结构，由 Worker 构造系统提示词；OpenAI Chat 流原样转发，Responses 与 Anthropic 流会归一化为前端统一的 SSE 契约。
 
 生产 `API_KEY` 仅存于 Cloudflare Worker Secret。Worker 通过 `BASE_URL`、`MODEL` 与 `AI_PROTOCOL` 选择上游；协议支持 `openai-chat`、`openai-coding` 和 `anthropic`。AI 路由通过 Cloudflare Rate Limiting binding 限制调用频率，并对客户端隐藏上游错误正文。
 
-题库管理、账号、云端 Session、OCR 与周报接口尚未实现；相关文档仅是未来规划。
+题库管理已经使用 D1 实现，但当前用户账号、云端 Session、OCR 与周报接口仍未实现；相关文档中的这些部分仍是未来规划。
 
 ## 七、主题与体验
 
@@ -104,6 +110,6 @@
 - 考试、复习和预习会话的云端持久化与迁移。
 - 试卷 OCR 分析。
 - 家长周报与跨设备学习记录。
-- 题库管理的外部持久化和审计。
+- D1 历史发布快照回滚、多管理员角色与图片资产管理。
 
-上述能力均未包含在当前线上 API 中，实施时应基于现有 Hono Worker 设计，并为数据写入选择适合 Cloudflare 的外部存储。
+上述后续能力均应继续扩展现有 Hono Worker，并明确未成年人数据、监护人授权与离线迁移边界。

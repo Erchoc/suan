@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const QUESTIONS_PATH = path.join(ROOT, 'public/questions.json');
+const QUESTIONS_PATH = path.join(ROOT, 'data/questions.seed.json');
 const GRAPH_PATH = path.join(ROOT, 'src/data/knowledge-graph.json');
 
 const FORCE = process.argv.includes('--force');

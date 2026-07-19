@@ -25,6 +25,8 @@ so you don't guess flags or invent subcommands.
 └── 同源 /api/*
     └── worker/index.ts 中的 Hono Worker
         ├── GET /api/health
+        ├── GET /api/questions 与 /api/admin/*
+        │   └── Cloudflare D1 题库资产
         └── POST /api/ai/chat
             └── 可配置 AI 上游（Chat Completions / Responses / Anthropic Messages）
 ```
@@ -59,7 +61,8 @@ docs/                        已实现说明、规划和真实截图
 关键数据约定：
 
 - `src/data/knowledge-graph.json` 是知识图谱源数据。
-- `public/questions.json` 是运行时题库，前端通过 `fetch` 加载；不要将它打入前端 JavaScript 包。
+- `data/questions.seed.json` 是非公开题库初始化基线；学生端只读取 D1 已发布版本，不提供静态题库回退。不要将 seed 打入前端 JavaScript 或静态资源。
+- `migrations/` 管理 D1 schema，`scripts/seedQuestionBank.ts` 生成被忽略的幂等初始化 SQL；不要修改已应用迁移。
 - `src/data/knowledge-cards.json` 是知识卡数据。
 - 考试、复习和预习状态目前保存在浏览器本地，不要描述成云端持久化。
 - `worker-configuration.d.ts` 由 Wrangler 生成；修改绑定后运行 `pnpm cf-typegen`，禁止手改。
@@ -130,7 +133,9 @@ docs/                        已实现说明、规划和真实截图
 
 `POST /api/ai/chat` 只接受受限的 `user` / `assistant` 消息；系统提示词由 Worker 构造。保持请求体大小、消息数量/长度、年级、同源和限流校验。
 
-生产 `API_KEY` 只能保存为 Cloudflare Worker Secret。环境契约只接受 `BASE_URL`、`API_KEY`、`MODEL`、`AI_PROTOCOL`，不要兼容 `APIKEY` 或旧的 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL` 名称。禁止把真实密钥写入源码、Wrangler vars、Vite 公开变量、日志、截图、测试快照或提交记录。
+生产 `API_KEY` 与 `ADMIN_SESSION_SECRET` 只能保存为 Cloudflare Worker Secret。AI 环境契约只接受 `BASE_URL`、`API_KEY`、`MODEL`、`AI_PROTOCOL`，不要兼容 `APIKEY` 或旧的 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL` 名称；题库后台另使用至少 24 个字符的 `ADMIN_SESSION_SECRET` 签名会话。禁止把真实密钥写入源码、Wrangler vars、Vite 公开变量、日志、截图、测试快照或提交记录。
+
+题库只能通过 `CONTENT_DB` D1 binding 访问，所有用户输入必须使用 prepared statement bind。管理员密钥只用于换取短时 HttpOnly 会话，不能放入 URL、请求头持久保存或浏览器 `localStorage`；管理写接口同时验证会话与同源。
 
 `AI_PROTOCOL` 只允许 `openai-chat`、`openai-coding`、`anthropic`，缺省语义为 `openai-chat`。三种上游协议都必须流式归一化为前端现有的 OpenAI Chat SSE 契约，不能要求浏览器感知供应商格式。
 
@@ -148,7 +153,7 @@ docs/                        已实现说明、规划和真实截图
 
 Cloudflare Vite 插件在构建阶段读取 `CLOUDFLARE_ENV`；构建完成后才传 `--env production` 不会改变已生成配置。因此生产构建和部署必须使用 `deploy:production*` 脚本或在整个部署 job 中设置 `CLOUDFLARE_ENV=production`。
 
-首次部署读取 `.env.example` 中的 `BASE_URL`、`API_KEY`、`MODEL` 和 `AI_PROTOCOL`。示例可以提供非敏感默认值，但不得包含有效密钥；一键部署表单会据此收集并保存 Worker 配置。
+首次部署读取 `.env.example` 中的 `BASE_URL`、`API_KEY`、`MODEL`、`AI_PROTOCOL` 和 `ADMIN_SESSION_SECRET`。示例可以提供非敏感默认值，但不得包含有效密钥；一键部署表单会据此收集并保存 Worker 配置。D1 未迁移或未初始化时题库接口返回明确错误；启用学生端和后台前需要显式执行迁移和幂等题库初始化。
 
 发布后至少验证：
 

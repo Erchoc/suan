@@ -17,6 +17,7 @@ const ReviewSummary = lazy(() => import('./pages/Review/ReviewSummary'));
 const PreviewIndex = lazy(() => import('./pages/Preview'));
 const PreviewSession = lazy(() => import('./pages/Preview/PreviewSession'));
 const QuestionDetail = lazy(() => import('./pages/Question'));
+const AdminQuestionBank = lazy(() => import('./pages/Admin'));
 
 // Reset the browser's native document scroll position on route changes.
 function ScrollToTop() {
@@ -57,6 +58,7 @@ export default function App() {
               <Route path="/preview" element={<PreviewIndex />} />
               <Route path="/preview/:sessionId" element={<PreviewSession />} />
               <Route path="/question/:questionId" element={<QuestionDetail />} />
+              <Route path="/console" element={<AdminQuestionBank />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

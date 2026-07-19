@@ -131,7 +131,7 @@ describe('previewStore', () => {
   it('judges answers through the production question cache', async () => {
     const question = createCachedQuestion();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify([question]), {
+      new Response(JSON.stringify({ data: [question] }), {
         headers: { 'content-type': 'application/json' },
         status: 200,
       }),

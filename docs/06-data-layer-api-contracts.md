@@ -1,18 +1,18 @@
 # 数据层 API 合约文档
 
-> 版本：v1.1 · 2026-07-18
+> 版本：v2.0 · 2026-07-19
 > 目标读者：后端工程师
-> 状态：**未来规划草案**。下文题库、Session、收藏和认证接口均未实现；当前线上 API 只有 `/api/health` 与 `/api/ai/chat`。
+> 状态：题库 D1、管理接口和管理员认证已实现；学习 Session、收藏聚合与用户账号仍是未来规划。
 
 ---
 
 ## 一、设计原则
 
-**本地模式（当前）**：所有数据写入 `localStorage`，通过 Zustand persist 持久化，无网络请求。
+**题库（当前）**：前端只通过同源 `/api/questions` 读取 D1 已发布版本。后台编辑源与学生发布快照分离，浏览器不再携带静态题库副本。
 
-**云端模式（后续）**：前端保留同一接口调用签名，只需将实现从 `localStorage` 读写切换为 HTTP fetch，即可无缝迁移。同时支持 PWA/离线场景（本地模式作为 fallback）。
+**学习状态（当前）**：考试、复习和预习仍通过 Zustand persist 写入 `localStorage`，尚无用户账号或跨设备同步。
 
-**建议切换方式（尚未实现）**：未来可维护 `DATA_MODE: 'local' | 'cloud'` 配置，`cloud` 模式下由数据访问层发起 HTTP 请求，并用响应更新本地缓存。不能把这个提案当成当前代码中的可用开关。
+**学习状态云端化（后续）**：保留现有 store 调用签名，把持久化实现切换为同源 HTTP，同时保留离线缓存。当前不存在全局 `DATA_MODE` 开关。
 
 ---
 
@@ -31,13 +31,14 @@ interface Question {
   type: "fill_blank" | "choice" | "mixed";
   question: string; // ____ 表示填空处
   blanks: string[]; // 填空答案
+  blank_types?: ("number" | "choice" | "text")[];
   choices?: { label: string; content: string }[];
   correctChoice?: string;
   solution: string;
   common_mistake: string;
   hint: string;
   enable?: boolean; // false = 已禁用（后台操作）
-  disableReason?: string;
+  checkMessage?: string; // 质量问题或禁用原因
 }
 ```
 
@@ -83,35 +84,36 @@ interface ReviewSource {
 
 ---
 
-## 三、未来 API 接口合约
+## 三、API 接口合约
 
-本节路径均为提案。实现时必须扩展现有 Hono Worker、选择外部持久化，并补齐服务端认证、授权、输入校验、限流、审计与迁移策略。
+题库部分为当前实现；Session 与收藏部分仍为提案。
 
 ### 3.1 题库
 
-| 接口          | 方法 | 路径                                | 说明             |
-| ------------- | ---- | ----------------------------------- | ---------------- |
-| 获取题库      | GET  | `/api/questions`                    | 返回全量启用题目 |
-| 获取单题      | GET  | `/api/questions/:id`                | —                |
-| Toggle enable | POST | `/api/admin/questions/toggle`       | 管理员操作       |
-| 批量 toggle   | POST | `/api/admin/questions/batch-toggle` | 管理员操作       |
+| 接口 | 方法 | 路径 | 说明 |
+| --- | --- | --- | --- |
+| 获取已发布题库 | GET | `/api/questions` | 返回全部已发布且启用题目 |
+| 获取单题 | GET | `/api/questions/:id` | 只返回已发布且启用题目 |
+| 管理列表 | GET | `/api/admin/questions` | 分页搜索、筛选草稿题库 |
+| 编辑题目 | PATCH | `/api/admin/questions/:id` | 编辑内容、答案、元数据与状态 |
+| 批量状态 | POST | `/api/admin/questions/batch-status` | 单次最多 100 道 |
+| 发布 | POST | `/api/admin/questions/publish` | 按期望修订发布 |
+| 导出 | GET | `/api/admin/questions/export` | 导出当前草稿 JSON |
+| 审计 | GET | `/api/admin/question-audit` | 最近操作记录 |
 
 **GET /api/questions 响应：**
 
 ```json
-{ "data": [Question], "total": 4735 }
+{ "data": [Question], "total": 3852, "version": 1, "source": "d1" }
 ```
 
-**POST /api/admin/questions/toggle：**
+**PATCH /api/admin/questions/:id：**
 
 ```json
-// 请求
-{ "id": "5-18-01", "enable": false, "disableReason": "答案有误" }
-// 响应
-{ "ok": true }
+{ "enable": false, "checkMessage": "答案有误" }
 ```
 
-请求头需携带 `X-Admin-Token: <token>`（临时，后续替换为 JWT）。
+管理接口使用 HttpOnly 会话 Cookie；不接受 URL 参数、`X-Admin-Token` 或浏览器 `localStorage` 中的 Bearer Token。写接口同时校验同源。
 
 ---
 
@@ -203,36 +205,35 @@ GET /api/me/wrong-questions    返回用户全局错题列表（跨 session）
 
 ---
 
-## 四、建议的前端切换方式（未实现）
+## 四、当前前端题库访问方式
 
-未来可在 `src/stores/` 下新增 `dataMode.ts`：
+`src/data/questions.ts` 是学生端题库访问入口：
 
 ```typescript
-// src/stores/dataMode.ts
-export const DATA_MODE: "local" | "cloud" =
-  import.meta.env.VITE_DATA_MODE === "cloud" ? "cloud" : "local";
+loadQuestions(); // D1 发布题库
+loadQuestion(questionId); // D1 单题 API，优先复用进程内缓存
 ```
 
-该文件和 `VITE_DATA_MODE` 当前均不存在。未来实现后，才可由各 store 根据 `DATA_MODE` 决定走 `localStorage` 还是同源 HTTP API。
+非公开的 `data/questions.seed.json` 只用于：
 
-本地模式保留，作为：
-
-1. 开发/测试时无需后端
-2. PWA 离线场景的 fallback
-3. 未登录用户的临时数据存储
+1. 首次创建或重建 D1 题库时生成可重复执行的导入 SQL。
+2. 运行题库生成与数据质量校验脚本。
+3. 作为可审计、可重复导入的初始数据基线。
 
 ---
 
-## 五、认证方案（规划）
+## 五、管理员认证（已实现）
 
-当前没有管理 API，也没有服务端管理员认证。URL `?admin=true` 只能用于界面原型，禁止把它当作生产权限判断。
+后台入口是 `/console?pw=MMDD`，其中 `MMDD` 按上海时区当天日期计算。页面接收参数后立即从地址栏移除，并换取服务端会话；旧的 `?admin=true` 不能控制权限。
 
-后续：JWT Bearer Token
+- 登录：`POST /api/admin/session`，提交当天口令与客户端 UUID。
+- 会话检查：`GET /api/admin/session`。
+- 退出：`DELETE /api/admin/session`。
+- 会话载体：最长 8 小时的 HMAC 签名 HttpOnly、SameSite=Strict Cookie。
+- 登录保护：Cloudflare Rate Limiting binding；边缘优先使用连接 IP，本地回退客户端 UUID。
+- Secret：`ADMIN_SESSION_SECRET` 至少 24 个字符，仅用于签名后台会话，并保存在 Worker Secret。
 
-- 登录接口：`POST /api/auth/login`
-- 续期：`POST /api/auth/refresh`
-- 前端存储：`localStorage.getItem('suandao-token')`
-- 请求头：`Authorization: Bearer <token>`
+当前是单管理员模型。未来接入家长/孩子账号时应采用独立身份体系，不能复用题库管理员会话。
 
 ---
 

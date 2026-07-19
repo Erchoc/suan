@@ -1,4 +1,29 @@
 import { type Context, Hono } from 'hono';
+import {
+  ADMIN_SESSION_COOKIE,
+  buildAdminSessionCookie,
+  buildExpiredAdminSessionCookie,
+  constantTimeStringMatches,
+  createAdminSession,
+  getDailyAdminPasscode,
+  readCookie,
+  verifyAdminSession,
+} from './adminAuth';
+import {
+  batchSetQuestionStatus,
+  exportDraftQuestions,
+  getPublishedQuestion,
+  isMissingQuestionBankSchema,
+  listAdminQuestions,
+  listPublishedQuestions,
+  listQuestionAudit,
+  parseQuestionPatch,
+  publishQuestionBank,
+  QuestionBankError,
+  type QuestionDifficulty,
+  type QuestionType,
+  updateQuestion,
+} from './questionBank';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MESSAGES = 30;
@@ -7,10 +32,13 @@ const MAX_TOTAL_MESSAGE_CHARS = 20_000;
 const CLIENT_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-type ApiStatus = 400 | 403 | 404 | 413 | 415 | 429 | 500 | 502 | 503;
+type ApiStatus = 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 500 | 502 | 503;
 
 type ApiErrorCode =
   | 'BAD_REQUEST'
+  | 'AUTH_REQUIRED'
+  | 'ADMIN_NOT_CONFIGURED'
+  | 'CONFLICT'
   | 'FORBIDDEN_ORIGIN'
   | 'NOT_FOUND'
   | 'PAYLOAD_TOO_LARGE'
@@ -18,7 +46,8 @@ type ApiErrorCode =
   | 'RATE_LIMITED'
   | 'INTERNAL_ERROR'
   | 'UPSTREAM_ERROR'
-  | 'AI_NOT_CONFIGURED';
+  | 'AI_NOT_CONFIGURED'
+  | 'QUESTION_BANK_NOT_READY';
 
 type ChatRole = 'user' | 'assistant';
 
@@ -464,12 +493,85 @@ function assertSameOrigin(c: Context<AppEnv>): void {
   if (!origin) return;
   try {
     if (new URL(origin).origin !== new URL(c.req.url).origin) {
-      throw new ApiError(403, 'FORBIDDEN_ORIGIN', '不允许跨站调用 AI 接口');
+      throw new ApiError(403, 'FORBIDDEN_ORIGIN', '不允许跨站调用接口');
     }
   } catch (error) {
     if (error instanceof ApiError) throw error;
     throw new ApiError(403, 'FORBIDDEN_ORIGIN', 'Origin 请求头无效');
   }
+}
+
+function assertJsonRequest(c: Context<AppEnv>): void {
+  const contentType = c.req.header('content-type')?.toLowerCase() ?? '';
+  if (!contentType.startsWith('application/json')) {
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Content-Type 必须是 application/json');
+  }
+}
+
+function readAdminSecret(c: Context<AppEnv>): string {
+  const secret = c.env.ADMIN_SESSION_SECRET;
+  if (typeof secret !== 'string' || secret.trim().length < 24) {
+    throw new ApiError(503, 'ADMIN_NOT_CONFIGURED', '题库后台尚未配置管理员密钥');
+  }
+  return secret.trim();
+}
+
+async function isAdminAuthenticated(c: Context<AppEnv>, nowMs: number): Promise<boolean> {
+  const secret = readAdminSecret(c);
+  const cookie = readCookie(c.req.header('cookie'), ADMIN_SESSION_COOKIE);
+  return verifyAdminSession(cookie, secret, nowMs);
+}
+
+async function assertAdminAuthenticated(c: Context<AppEnv>, nowMs: number): Promise<void> {
+  if (!(await isAdminAuthenticated(c, nowMs))) {
+    throw new ApiError(401, 'AUTH_REQUIRED', '管理员登录已失效，请重新登录');
+  }
+}
+
+function readPositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  maximum: number,
+  key: string,
+): number {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new ApiError(400, 'BAD_REQUEST', `${key} 不合法`);
+  }
+  return parsed;
+}
+
+function readQuestionDifficulty(value: string | undefined): QuestionDifficulty | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (value === 'easy' || value === 'medium' || value === 'hard') return value;
+  throw new ApiError(400, 'BAD_REQUEST', 'difficulty 不合法');
+}
+
+function readQuestionType(value: string | undefined): QuestionType | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (value === 'fill_blank' || value === 'choice' || value === 'mixed') return value;
+  throw new ApiError(400, 'BAD_REQUEST', 'type 不合法');
+}
+
+function readQuestionStatus(value: string | undefined): 'enabled' | 'disabled' | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (value === 'enabled' || value === 'disabled') return value;
+  throw new ApiError(400, 'BAD_REQUEST', 'status 不合法');
+}
+
+function getRateLimitKey(c: Context<AppEnv>, scope: string): string {
+  const connectingIp = c.req.header('cf-connecting-ip')?.trim();
+  if (connectingIp && connectingIp.length <= 64) return `${scope}:ip:${connectingIp}`;
+  const clientId = c.req.header('x-suan-client-id') ?? '';
+  if (!CLIENT_ID_PATTERN.test(clientId)) {
+    throw new ApiError(400, 'BAD_REQUEST', '缺少有效的客户端标识');
+  }
+  return `${scope}:client:${clientId}`;
+}
+
+function formatSqlTimestamp(nowMs: number): string {
+  return new Date(nowMs).toISOString();
 }
 
 export function createApp(overrides: Partial<AppDependencies> = {}) {
@@ -489,7 +591,7 @@ export function createApp(overrides: Partial<AppDependencies> = {}) {
     await next();
 
     c.header('x-trace-id', traceId);
-    c.header('cache-control', 'no-store');
+    if (!c.res.headers.has('cache-control')) c.header('cache-control', 'no-store');
     c.header('x-content-type-options', 'nosniff');
     c.header('referrer-policy', 'no-referrer');
     console.log({
@@ -508,26 +610,173 @@ export function createApp(overrides: Partial<AppDependencies> = {}) {
       service: 'suan',
       runtime: 'cloudflare-workers',
       ai: c.env.API_KEY && c.env.BASE_URL && c.env.MODEL ? 'ready' : 'unconfigured',
+      contentDatabase: c.env.CONTENT_DB ? 'configured' : 'unconfigured',
     }),
   );
 
+  app.get('/api/questions', async c => {
+    const result = await listPublishedQuestions(c.env.CONTENT_DB);
+    const etag = `W/"questions-${result.meta.publishedRevision}"`;
+    c.header('etag', etag);
+    c.header('cache-control', 'public, max-age=300, stale-while-revalidate=86400');
+    if (c.req.header('if-none-match') === etag) return c.body(null, 304);
+    return c.json({
+      data: result.questions,
+      total: result.questions.length,
+      version: result.meta.publishedRevision,
+      source: 'd1',
+    });
+  });
+
+  app.get('/api/questions/:id', async c => {
+    const result = await getPublishedQuestion(c.env.CONTENT_DB, c.req.param('id'));
+    c.header('cache-control', 'public, max-age=300, stale-while-revalidate=86400');
+    c.header('etag', `W/"question-${result.meta.publishedRevision}-${result.question.id}"`);
+    return c.json({ data: result.question, version: result.meta.publishedRevision, source: 'd1' });
+  });
+
+  app.post('/api/admin/session', async c => {
+    assertSameOrigin(c);
+    assertJsonRequest(c);
+    const rateLimit = await c.env.ADMIN_RATE_LIMITER.limit({ key: getRateLimitKey(c, 'admin') });
+    if (!rateLimit.success) {
+      c.header('retry-after', '60');
+      throw new ApiError(429, 'RATE_LIMITED', '登录尝试过于频繁，请稍后再试');
+    }
+    const body = await readJsonWithLimit(c.req.raw);
+    if (!isRecord(body)) throw new ApiError(400, 'BAD_REQUEST', '请求体必须是对象');
+    const passcode = readBoundedString(body, 'pw', 4);
+    const secret = readAdminSecret(c);
+    const expectedPasscode = getDailyAdminPasscode(dependencies.now());
+    if (!(await constantTimeStringMatches(passcode, expectedPasscode))) {
+      throw new ApiError(401, 'AUTH_REQUIRED', '后台口令不正确或已过期');
+    }
+    const session = await createAdminSession(secret, dependencies.now(), dependencies.randomUUID());
+    c.header(
+      'set-cookie',
+      buildAdminSessionCookie(session.value, new URL(c.req.url).protocol === 'https:'),
+    );
+    return c.json({ authenticated: true, expiresAt: session.expiresAt });
+  });
+
+  app.get('/api/admin/session', async c =>
+    c.json({ authenticated: await isAdminAuthenticated(c, dependencies.now()) }),
+  );
+
+  app.delete('/api/admin/session', c => {
+    assertSameOrigin(c);
+    c.header(
+      'set-cookie',
+      buildExpiredAdminSessionCookie(new URL(c.req.url).protocol === 'https:'),
+    );
+    return c.json({ authenticated: false });
+  });
+
+  app.get('/api/admin/questions', async c => {
+    await assertAdminAuthenticated(c, dependencies.now());
+    const query = c.req.query('query')?.trim();
+    if (query && query.length > 120) throw new ApiError(400, 'BAD_REQUEST', 'query 过长');
+    const grade = c.req.query('grade')?.trim();
+    const semester = c.req.query('semester')?.trim();
+    if (grade && grade.length > 20) throw new ApiError(400, 'BAD_REQUEST', 'grade 过长');
+    if (semester && semester.length > 20) {
+      throw new ApiError(400, 'BAD_REQUEST', 'semester 过长');
+    }
+    return c.json(
+      await listAdminQuestions(c.env.CONTENT_DB, {
+        page: readPositiveInteger(c.req.query('page'), 1, 100_000, 'page'),
+        pageSize: readPositiveInteger(c.req.query('pageSize'), 30, 100, 'pageSize'),
+        query: query || undefined,
+        grade: grade || undefined,
+        semester: semester || undefined,
+        difficulty: readQuestionDifficulty(c.req.query('difficulty')),
+        type: readQuestionType(c.req.query('type')),
+        status: readQuestionStatus(c.req.query('status')),
+      }),
+    );
+  });
+
+  app.patch('/api/admin/questions/:id', async c => {
+    assertSameOrigin(c);
+    await assertAdminAuthenticated(c, dependencies.now());
+    assertJsonRequest(c);
+    const questionId = c.req.param('id');
+    if (!questionId || questionId.length > 80) {
+      throw new ApiError(400, 'BAD_REQUEST', '题目 ID 不合法');
+    }
+    const patch = parseQuestionPatch(await readJsonWithLimit(c.req.raw));
+    return c.json(
+      await updateQuestion(
+        c.env.CONTENT_DB,
+        questionId,
+        patch,
+        formatSqlTimestamp(dependencies.now()),
+      ),
+    );
+  });
+
+  app.post('/api/admin/questions/batch-status', async c => {
+    assertSameOrigin(c);
+    await assertAdminAuthenticated(c, dependencies.now());
+    assertJsonRequest(c);
+    const body = await readJsonWithLimit(c.req.raw);
+    if (!isRecord(body) || !Array.isArray(body.ids) || typeof body.enable !== 'boolean') {
+      throw new ApiError(400, 'BAD_REQUEST', 'ids 或 enable 不合法');
+    }
+    if (!body.ids.every(id => typeof id === 'string' && id.length > 0 && id.length <= 80)) {
+      throw new ApiError(400, 'BAD_REQUEST', 'ids 包含不合法的题目 ID');
+    }
+    if (body.reason !== undefined && typeof body.reason !== 'string') {
+      throw new ApiError(400, 'BAD_REQUEST', 'reason 必须是字符串');
+    }
+    const meta = await batchSetQuestionStatus(
+      c.env.CONTENT_DB,
+      body.ids,
+      body.enable,
+      body.reason,
+      formatSqlTimestamp(dependencies.now()),
+    );
+    return c.json({ ok: true, updated: new Set(body.ids).size, meta });
+  });
+
+  app.post('/api/admin/questions/publish', async c => {
+    assertSameOrigin(c);
+    await assertAdminAuthenticated(c, dependencies.now());
+    assertJsonRequest(c);
+    const body = await readJsonWithLimit(c.req.raw);
+    if (!isRecord(body) || !Number.isInteger(body.expectedDraftRevision)) {
+      throw new ApiError(400, 'BAD_REQUEST', 'expectedDraftRevision 不合法');
+    }
+    return c.json(
+      await publishQuestionBank(
+        c.env.CONTENT_DB,
+        Number(body.expectedDraftRevision),
+        formatSqlTimestamp(dependencies.now()),
+      ),
+    );
+  });
+
+  app.get('/api/admin/questions/export', async c => {
+    await assertAdminAuthenticated(c, dependencies.now());
+    const result = await exportDraftQuestions(c.env.CONTENT_DB);
+    c.header(
+      'content-disposition',
+      `attachment; filename="questions-r${result.meta.draftRevision}.json"`,
+    );
+    return c.json(result);
+  });
+
+  app.get('/api/admin/question-audit', async c => {
+    await assertAdminAuthenticated(c, dependencies.now());
+    const limit = readPositiveInteger(c.req.query('limit'), 30, 100, 'limit');
+    return c.json({ data: await listQuestionAudit(c.env.CONTENT_DB, limit) });
+  });
+
   app.post('/api/ai/chat', async c => {
     assertSameOrigin(c);
+    assertJsonRequest(c);
 
-    const contentType = c.req.header('content-type')?.toLowerCase() ?? '';
-    if (!contentType.startsWith('application/json')) {
-      throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Content-Type 必须是 application/json');
-    }
-
-    const clientId = c.req.header('x-suan-client-id') ?? '';
-    if (!CLIENT_ID_PATTERN.test(clientId)) {
-      throw new ApiError(400, 'BAD_REQUEST', '缺少有效的客户端标识');
-    }
-
-    const connectingIp = c.req.header('cf-connecting-ip')?.trim();
-    const rateKey =
-      connectingIp && connectingIp.length <= 64 ? `ai:ip:${connectingIp}` : `ai:client:${clientId}`;
-    const rateLimit = await c.env.AI_RATE_LIMITER.limit({ key: rateKey });
+    const rateLimit = await c.env.AI_RATE_LIMITER.limit({ key: getRateLimitKey(c, 'ai') });
     if (!rateLimit.success) {
       c.header('retry-after', '60');
       throw new ApiError(429, 'RATE_LIMITED', '请求过于频繁，请稍后再试');
@@ -588,6 +837,21 @@ export function createApp(overrides: Partial<AppDependencies> = {}) {
   app.onError((error, c) => {
     if (error instanceof ApiError) {
       return errorResponse(c, error.status, error.code, error.message);
+    }
+    if (error instanceof QuestionBankError) {
+      if (error.code === 'NOT_FOUND') {
+        return errorResponse(c, 404, 'NOT_FOUND', error.message);
+      }
+      if (error.code === 'VALIDATION') {
+        return errorResponse(c, 400, 'BAD_REQUEST', error.message);
+      }
+      if (error.code === 'CONFLICT') {
+        return errorResponse(c, 409, 'CONFLICT', error.message);
+      }
+      return errorResponse(c, 503, 'QUESTION_BANK_NOT_READY', error.message);
+    }
+    if (isMissingQuestionBankSchema(error)) {
+      return errorResponse(c, 503, 'QUESTION_BANK_NOT_READY', '题库数据库尚未初始化');
     }
     console.error({
       event: 'api_unhandled_error',
