@@ -90,7 +90,7 @@ export interface ExamConfig {
   difficulty: DifficultyLevel;
   questionCount: number;
   timeLimitMinutes: number; // 0 disables the timer.
-  filterChineseInput: boolean; // Filters text-input blanks for grades 1-3.
+  filterChineseInput: boolean; // Filters text-input blanks for grades 1-2.
 }
 
 export interface ExamSession {

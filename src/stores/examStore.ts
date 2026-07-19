@@ -81,8 +81,8 @@ export const useExamStore = create<ExamStore>()(
             gradeNum,
             semester: null,
             selectedUnitIds: new Set(),
-            // Disable text-input filtering for grades 4-6; preserve the current setting for grades 1-3.
-            filterChineseInput: gradeNum > 3 ? false : state.config.filterChineseInput,
+            // Disable text-input filtering for grades 3-6; preserve the current setting for grades 1-2.
+            filterChineseInput: gradeNum > 2 ? false : state.config.filterChineseInput,
           },
         })),
 

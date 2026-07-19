@@ -376,7 +376,7 @@ export default function GraphPage() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="p-4 sm:p-6 flex flex-col gap-6 max-w-3xl"
+                className="p-4 sm:p-6 flex flex-col gap-6 w-full max-w-[1440px] mx-auto"
               >
                 {/* Knowledge point information card. */}
                 <div
@@ -418,119 +418,220 @@ export default function GraphPage() {
                   </div>
                 </div>
 
-                {/* Local relationship graph. */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <h3 className="text-sm font-medium">关系图</h3>
-                    <span className="text-xs text-text-dim">
-                      {directDeps.length > 0 ? `${directDeps.length} 个前置` : '无前置'}
-                      {dependents.length > 0 ? ` · ${dependents.length} 个后续` : ' · 无后续'}
-                    </span>
-                  </div>
-                  {directDeps.length === 0 && dependents.length === 0 ? (
-                    <div className="bg-surface2 rounded-xl p-6 text-center text-text-dim text-sm">
-                      该知识点是独立基础节点，无依赖关系
+                <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_20rem] gap-6 items-start">
+                  <div className="min-w-0 flex flex-col gap-6">
+                    {/* Local relationship graph. */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <h3 className="text-sm font-medium">关系图</h3>
+                        <span className="text-xs text-text-dim">
+                          {directDeps.length > 0 ? `${directDeps.length} 个前置` : '无前置'}
+                          {dependents.length > 0 ? ` · ${dependents.length} 个后续` : ' · 无后续'}
+                        </span>
+                      </div>
+                      {directDeps.length === 0 && dependents.length === 0 ? (
+                        <div className="bg-surface2 rounded-xl p-6 text-center text-text-dim text-sm">
+                          该知识点是独立基础节点，无依赖关系
+                        </div>
+                      ) : (
+                        <div className="h-60 sm:h-80 xl:h-[22rem] rounded-xl overflow-hidden border border-border">
+                          <LocalGraph centerKP={selectedKP} onNodeClick={handleSelect} />
+                        </div>
+                      )}
+                      <p className="text-xs text-text-dim mt-2 flex items-center gap-1">
+                        <ArrowRight size={10} /> 箭头方向：前置知识点 → 当前知识点 →
+                        后续知识点。可点击图中节点跳转。
+                      </p>
                     </div>
-                  ) : (
-                    <div className="h-60 sm:h-72 rounded-xl overflow-hidden border border-border">
-                      <LocalGraph centerKP={selectedKP} onNodeClick={handleSelect} />
-                    </div>
-                  )}
-                  <p className="text-xs text-text-dim mt-2 flex items-center gap-1">
-                    <ArrowRight size={10} /> 箭头方向：前置知识点 → 当前知识点 →
-                    后续知识点。可点击图中节点跳转。
-                  </p>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Direct prerequisites. */}
-                  <div className="bg-surface border border-border rounded-xl p-4">
-                    <h3 className="text-sm font-medium mb-3 flex items-center gap-1.5">
-                      <span className="text-text-dim">←</span> 学了这些才能学这个
-                      <span className="text-xs text-text-dim ml-auto">{directDeps.length} 个</span>
-                    </h3>
-                    {directDeps.length === 0 ? (
-                      <p className="text-xs text-text-dim">无需前置知识，是起点知识</p>
-                    ) : (
-                      <div className="flex flex-col gap-1.5">
-                        {directDeps.map(d => (
-                          <button
-                            key={d.id}
-                            onClick={() => handleSelect(d)}
-                            className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors text-left w-full"
-                          >
-                            <span
-                              className="w-2 h-2 rounded-full flex-shrink-0"
-                              style={{ background: d.gradeColor }}
-                            />
-                            <span className="flex-1">{d.name}</span>
-                            <span className="text-xs text-text-dim">{d.gradeName}</span>
-                          </button>
-                        ))}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Direct prerequisites. */}
+                      <div className="bg-surface border border-border rounded-xl p-4">
+                        <h3 className="text-sm font-medium mb-3 flex items-center gap-1.5">
+                          <span className="text-text-dim">←</span> 学了这些才能学这个
+                          <span className="text-xs text-text-dim ml-auto">
+                            {directDeps.length} 个
+                          </span>
+                        </h3>
+                        {directDeps.length === 0 ? (
+                          <p className="text-xs text-text-dim">无需前置知识，是起点知识</p>
+                        ) : (
+                          <div className="flex flex-col gap-1.5">
+                            {directDeps.map(d => (
+                              <button
+                                key={d.id}
+                                onClick={() => handleSelect(d)}
+                                className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors text-left w-full"
+                              >
+                                <span
+                                  className="w-2 h-2 rounded-full flex-shrink-0"
+                                  style={{ background: d.gradeColor }}
+                                />
+                                <span className="flex-1">{d.name}</span>
+                                <span className="text-xs text-text-dim">{d.gradeName}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Direct successors. */}
+                      <div className="bg-surface border border-border rounded-xl p-4">
+                        <h3 className="text-sm font-medium mb-3 flex items-center gap-1.5">
+                          <span className="text-text-dim">→</span> 学会这个才能继续学
+                          <span className="text-xs text-text-dim ml-auto">
+                            {dependents.length} 个
+                          </span>
+                        </h3>
+                        {dependents.length === 0 ? (
+                          <p className="text-xs text-text-dim">该年级段的终点知识</p>
+                        ) : (
+                          <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
+                            {dependents.map(d => (
+                              <button
+                                key={d.id}
+                                onClick={() => handleSelect(d)}
+                                className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors text-left w-full"
+                              >
+                                <span
+                                  className="w-2 h-2 rounded-full flex-shrink-0"
+                                  style={{ background: d.gradeColor }}
+                                />
+                                <span className="flex-1">{d.name}</span>
+                                <span className="text-xs text-text-dim">{d.gradeName}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Full dependency chain. */}
+                    {deps.length > 0 && (
+                      <div className="bg-surface border border-border rounded-xl p-4">
+                        <h3 className="text-sm font-medium mb-3">
+                          完整前置链{' '}
+                          <span className="text-text-dim text-xs ml-1">
+                            （掌握这个知识点需要的全部基础）
+                          </span>
+                        </h3>
+                        <div className="flex flex-wrap gap-2">
+                          {deps.map(d => (
+                            <button
+                              key={d.id}
+                              onClick={() => handleSelect(d)}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs hover:opacity-80 transition-opacity"
+                              style={{
+                                background: `${d.gradeColor}18`,
+                                border: `1px solid ${d.gradeColor}44`,
+                                color: d.gradeColor,
+                              }}
+                            >
+                              <span>{d.name}</span>
+                              <span className="opacity-60">{d.gradeName}</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Direct successors. */}
-                  <div className="bg-surface border border-border rounded-xl p-4">
-                    <h3 className="text-sm font-medium mb-3 flex items-center gap-1.5">
-                      <span className="text-text-dim">→</span> 学会这个才能继续学
-                      <span className="text-xs text-text-dim ml-auto">{dependents.length} 个</span>
-                    </h3>
-                    {dependents.length === 0 ? (
-                      <p className="text-xs text-text-dim">该年级段的终点知识</p>
-                    ) : (
-                      <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
-                        {dependents.map(d => (
+                  {/* Wide-screen learning navigator. */}
+                  <aside className="hidden xl:flex sticky top-0 bg-surface border border-border rounded-2xl p-5 flex-col gap-5">
+                    <div>
+                      <div className="flex items-center gap-2 text-accent mb-3">
+                        <GitMerge size={17} />
+                        <h3 className="text-sm font-semibold">学习导航</h3>
+                      </div>
+                      <p className="font-serif text-xl font-semibold text-text">
+                        {directDeps.length === 0 && dependents.length === 0
+                          ? '独立知识点'
+                          : directDeps.length === 0
+                            ? '基础起点'
+                            : dependents.length === 0
+                              ? '阶段终点'
+                              : '承上启下'}
+                      </p>
+                      <p className="text-sm text-text-dim leading-relaxed mt-1">
+                        {directDeps.length === 0 && dependents.length === 0
+                          ? '没有依赖关系，可以直接进入学习。'
+                          : directDeps.length === 0
+                            ? `可以直接学习，也是后续 ${dependents.length} 个知识点的基础。`
+                            : dependents.length === 0
+                              ? `建议先确认 ${directDeps.length} 个直接前置，再完成这个阶段知识点。`
+                              : `连接 ${directDeps.length} 个直接前置与 ${dependents.length} 个后续知识点。`}
+                      </p>
+                    </div>
+
+                    <dl className="border-y border-border divide-y divide-border">
+                      <div className="flex items-center justify-between py-3">
+                        <dt className="text-sm text-text-dim">直接前置</dt>
+                        <dd className="text-sm font-semibold">{directDeps.length}</dd>
+                      </div>
+                      <div className="flex items-center justify-between py-3">
+                        <dt className="text-sm text-text-dim">完整基础链</dt>
+                        <dd className="text-sm font-semibold">{deps.length}</dd>
+                      </div>
+                      <div className="flex items-center justify-between py-3">
+                        <dt className="text-sm text-text-dim">可继续学习</dt>
+                        <dd className="text-sm font-semibold">{dependents.length}</dd>
+                      </div>
+                    </dl>
+
+                    {(directDeps[0] || dependents[0]) && (
+                      <div className="flex flex-col gap-2">
+                        {directDeps[0] && (
                           <button
-                            key={d.id}
-                            onClick={() => handleSelect(d)}
-                            className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors text-left w-full"
+                            type="button"
+                            onClick={() => handleSelect(directDeps[0])}
+                            className="text-left rounded-xl border border-border px-3 py-2.5 hover:border-accent/50 hover:bg-accent/5 transition-colors"
                           >
-                            <span
-                              className="w-2 h-2 rounded-full flex-shrink-0"
-                              style={{ background: d.gradeColor }}
-                            />
-                            <span className="flex-1">{d.name}</span>
-                            <span className="text-xs text-text-dim">{d.gradeName}</span>
+                            <span className="block text-xs text-text-dim mb-0.5">建议先看</span>
+                            <span className="block text-sm font-medium truncate">
+                              {directDeps[0].name}
+                            </span>
                           </button>
-                        ))}
+                        )}
+                        {dependents[0] && (
+                          <button
+                            type="button"
+                            onClick={() => handleSelect(dependents[0])}
+                            className="text-left rounded-xl border border-border px-3 py-2.5 hover:border-accent/50 hover:bg-accent/5 transition-colors"
+                          >
+                            <span className="block text-xs text-text-dim mb-0.5">学完可继续</span>
+                            <span className="block text-sm font-medium truncate">
+                              {dependents[0].name}
+                            </span>
+                          </button>
+                        )}
                       </div>
                     )}
-                  </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Button
+                        variant="primary"
+                        size="lg"
+                        onClick={() => navigate(`/preview?kp=${selectedKP.id}`)}
+                        className="w-full justify-center py-3 font-semibold"
+                      >
+                        <BookOpen size={17} />
+                        进入预习
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="lg"
+                        onClick={() => navigate(`/review?kp=${selectedKP.id}`)}
+                        className="w-full justify-center py-3 font-semibold"
+                      >
+                        <Repeat2 size={17} />
+                        进入复习
+                      </Button>
+                    </div>
+                  </aside>
                 </div>
 
-                {/* Full dependency chain. */}
-                {deps.length > 0 && (
-                  <div className="bg-surface border border-border rounded-xl p-4">
-                    <h3 className="text-sm font-medium mb-3">
-                      完整前置链{' '}
-                      <span className="text-text-dim text-xs ml-1">
-                        （掌握这个知识点需要的全部基础）
-                      </span>
-                    </h3>
-                    <div className="flex flex-wrap gap-2">
-                      {deps.map(d => (
-                        <button
-                          key={d.id}
-                          onClick={() => handleSelect(d)}
-                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs hover:opacity-80 transition-opacity"
-                          style={{
-                            background: `${d.gradeColor}18`,
-                            border: `1px solid ${d.gradeColor}44`,
-                            color: d.gradeColor,
-                          }}
-                        >
-                          <span>{d.name}</span>
-                          <span className="opacity-60">{d.gradeName}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Quick actions. */}
-                <div className="flex flex-col gap-2 pt-2">
+                {/* Compact-screen actions. */}
+                <div className="flex xl:hidden flex-col gap-2 pt-2">
                   <Button
                     variant="primary"
                     size="lg"

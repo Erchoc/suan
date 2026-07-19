@@ -1,5 +1,13 @@
-import { Background, type Edge, MarkerType, type Node, Position, ReactFlow } from '@xyflow/react';
-import { useMemo } from 'react';
+import {
+  Background,
+  type Edge,
+  MarkerType,
+  type Node,
+  Position,
+  ReactFlow,
+  type ReactFlowInstance,
+} from '@xyflow/react';
+import { useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
 import { useTheme } from '../../contexts/theme';
 import type { KPWithContext } from '../../data/kpIndex';
@@ -16,6 +24,8 @@ const H = 48;
 export default function LocalGraph({ centerKP, onNodeClick }: LocalGraphProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+  const containerRef = useRef<HTMLDivElement>(null);
+  const flowRef = useRef<ReactFlowInstance | null>(null);
 
   const bgDotColor = isDark ? '#2e2b4a' : '#d8d3c8';
   const edgeStroke = isDark ? 'rgba(167,169,190,0.5)' : 'rgba(100,95,130,0.4)';
@@ -128,29 +138,53 @@ export default function LocalGraph({ centerKP, onNodeClick }: LocalGraphProps) {
     return { nodes, edges };
   }, [centerKP, edgeStroke]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || nodes.length === 0) return;
+    let animationFrame = 0;
+    const fitGraph = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        void flowRef.current?.fitView({ padding: 0.2, duration: 120 });
+      });
+    };
+    const observer = new ResizeObserver(fitGraph);
+    observer.observe(container);
+    fitGraph();
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+    };
+  }, [nodes]);
+
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      fitView
-      fitViewOptions={{ padding: 0.3 }}
-      nodesDraggable={false}
-      nodesConnectable={false}
-      elementsSelectable={false}
-      panOnDrag={false}
-      zoomOnScroll={false}
-      zoomOnPinch={false}
-      zoomOnDoubleClick={false}
-      preventScrolling={false}
-      minZoom={0.3}
-      maxZoom={2}
-      onNodeClick={(_e, node) => {
-        const kp = kpMap.get(node.id);
-        if (kp) onNodeClick?.(kp);
-      }}
-      style={{ background: 'var(--surface2)', borderRadius: 12 }}
-    >
-      <Background color={bgDotColor} gap={16} />
-    </ReactFlow>
+    <div ref={containerRef} className="w-full h-full">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        fitView
+        fitViewOptions={{ padding: 0.2 }}
+        onInit={instance => {
+          flowRef.current = instance;
+        }}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable={false}
+        panOnDrag={false}
+        zoomOnScroll={false}
+        zoomOnPinch={false}
+        zoomOnDoubleClick={false}
+        preventScrolling={false}
+        minZoom={0.3}
+        maxZoom={2}
+        onNodeClick={(_e, node) => {
+          const kp = kpMap.get(node.id);
+          if (kp) onNodeClick?.(kp);
+        }}
+        style={{ background: 'var(--surface2)', borderRadius: 12 }}
+      >
+        <Background color={bgDotColor} gap={16} />
+      </ReactFlow>
+    </div>
   );
 }

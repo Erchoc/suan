@@ -428,9 +428,9 @@ export default function ExamConfig() {
           )}
         </AnimatePresence>
 
-        {/* Text-input filter for grades 1-3. */}
+        {/* Text-input filter for grades 1-2. */}
         <AnimatePresence>
-          {config.gradeNum && config.gradeNum <= 3 && (
+          {config.gradeNum && config.gradeNum <= 2 && (
             <motion.section
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -438,39 +438,18 @@ export default function ExamConfig() {
               className="mb-6 overflow-hidden"
             >
               <label className="flex items-start gap-3 p-4 rounded-xl bg-surface border border-border cursor-pointer group hover:border-text-dim/40 transition-colors">
-                <div className="relative flex-shrink-0 mt-0.5">
-                  <input
-                    type="checkbox"
-                    checked={config.filterChineseInput}
-                    onChange={e => setFilterChineseInput(e.target.checked)}
-                    className="sr-only"
-                  />
-                  <div
-                    className="w-5 h-5 rounded flex items-center justify-center border-2 transition-all"
-                    style={{
-                      background: config.filterChineseInput ? 'var(--accent)' : 'var(--surface2)',
-                      borderColor: config.filterChineseInput ? 'var(--accent)' : 'var(--border)',
-                    }}
-                  >
-                    {config.filterChineseInput && (
-                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none" aria-hidden="true">
-                        <path
-                          d="M1 4l3 3L9 1"
-                          stroke="white"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    )}
-                  </div>
-                </div>
+                <input
+                  type="checkbox"
+                  checked={config.filterChineseInput}
+                  onChange={e => setFilterChineseInput(e.target.checked)}
+                  className="mt-0.5"
+                />
                 <div>
                   <p className="text-sm font-medium text-text leading-snug">
                     过滤需要中文 / 拼音打字的填空题
                   </p>
                   <p className="text-xs text-text-dim mt-0.5 leading-relaxed">
-                    如果孩子不会中文打字，建议开启。开启后题目只含数字填空，配合数字键盘作答更顺畅。
+                    专为不会打字的孩子设计
                   </p>
                 </div>
               </label>
@@ -558,42 +537,17 @@ export default function ExamConfig() {
                                 key={unit.id}
                                 className="flex items-center gap-3 py-1.5 cursor-pointer group"
                               >
-                                <span
-                                  className={`w-4 h-4 rounded flex-shrink-0 border flex items-center justify-center transition-all ${
-                                    checked ? 'border-transparent' : 'border-border bg-surface2'
-                                  }`}
-                                  style={checked ? { background: gradeColor } : {}}
-                                >
-                                  {checked && (
-                                    <svg
-                                      width="9"
-                                      height="7"
-                                      viewBox="0 0 9 7"
-                                      fill="none"
-                                      aria-hidden="true"
-                                    >
-                                      <path
-                                        d="M1 3l2.5 2.5L8 1"
-                                        stroke="white"
-                                        strokeWidth="1.5"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                      />
-                                    </svg>
-                                  )}
-                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => handleToggleUnit(unit.id)}
+                                />
                                 <span
                                   className="text-sm transition-colors"
                                   style={{ color: checked ? 'var(--text)' : 'var(--text-dim)' }}
                                 >
                                   {unit.name}
                                 </span>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => handleToggleUnit(unit.id)}
-                                  className="sr-only"
-                                />
                               </label>
                             );
                           })}

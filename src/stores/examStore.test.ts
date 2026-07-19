@@ -99,9 +99,9 @@ describe('examStore configuration', () => {
       }),
     });
 
-    useExamStore.getState().setGrade(4);
+    useExamStore.getState().setGrade(3);
     expect(useExamStore.getState().config).toMatchObject({
-      gradeNum: 4,
+      gradeNum: 3,
       semester: null,
       filterChineseInput: false,
     });
