@@ -53,10 +53,13 @@ const QUALITY_SCOPE_OPTIONS = [
   { value: 'disabled', label: '当前停用题目' },
   { value: 'reported', label: '有用户反馈的题目' },
 ] satisfies SelectOption[];
-const QUALITY_LIMIT_OPTIONS = [20, 50, 100, 200].map(limit => ({
-  value: String(limit),
-  label: `最多 ${limit} 道`,
-})) satisfies SelectOption[];
+const QUALITY_LIMIT_OPTIONS = [
+  { value: 'all', label: '全部' },
+  ...[20, 50, 100, 200].map(limit => ({
+    value: String(limit),
+    label: `最多 ${limit} 道`,
+  })),
+] satisfies SelectOption[];
 
 const STATUS_LABELS: Record<QuestionTask['status'], string> = {
   queued: '等待执行',
@@ -101,7 +104,8 @@ function taskParamsSummary(type: QuestionTaskType, params: QuestionTaskParams): 
   const quality = params as QualityQuestionTaskParams;
   const scope = QUALITY_SCOPE_OPTIONS.find(option => option.value === quality.scope)?.label;
   const grade = GRADE_OPTIONS.find(option => option.value === String(quality.grade))?.label;
-  return `${scope} · ${quality.grade ? (grade ?? `${quality.grade}年级`) : '全部年级'} · 最多 ${quality.limit} 道`;
+  const limit = quality.limit === 'all' ? '全部题目' : `最多 ${quality.limit} 道`;
+  return `${scope} · ${quality.grade ? (grade ?? `${quality.grade}年级`) : '全部年级'} · ${limit}`;
 }
 
 interface TaskLauncherDialogProps {
@@ -164,7 +168,7 @@ export function TaskLauncherDialog({ type, busy, onClose, onStart }: TaskLaunche
           ...(qualityGrade ? { grade: Number(qualityGrade) } : {}),
           ...(qualitySemester ? { semester: qualitySemester as '上' | '下' } : {}),
           ...(qualityType ? { type: qualityType as QualityQuestionTaskParams['type'] } : {}),
-          limit: Number(qualityLimit) as 20 | 50 | 100 | 200,
+          limit: qualityLimit === 'all' ? 'all' : (Number(qualityLimit) as 20 | 50 | 100 | 200),
         });
       }
     } catch (cause) {
@@ -178,8 +182,8 @@ export function TaskLauncherDialog({ type, busy, onClose, onStart }: TaskLaunche
       title={type === 'generate' ? '生成题库' : 'AI 题目质检'}
       description={
         type === 'generate'
-          ? 'MiniMax 会按知识点分批生成，新题先进入待质检状态，不会直接给学生使用。'
-          : 'MiniMax 会逐批检查答案、题意和年级匹配；待检新题合格后启用，问题题自动停用，人工停用不会被自动恢复。'
+          ? 'AI 会按知识点分批生成，新题先进入待质检状态，不会直接给学生使用。'
+          : 'AI 会逐批检查答案、题意和年级匹配；待检新题合格后启用，问题题自动停用，人工停用不会被自动恢复。'
       }
       dismissible={!busy}
       onClose={onClose}
@@ -278,7 +282,9 @@ export function TaskLauncherDialog({ type, busy, onClose, onStart }: TaskLaunche
           <div className="sm:col-span-2 rounded-xl border border-green/20 bg-green/5 px-4 py-3">
             <p className="text-sm font-medium text-text">每批检查 5 道题</p>
             <p className="mt-1 text-xs leading-relaxed text-text-dim">
-              每批结果都会写入 D1 并同步给后续新建的作答，历史试卷仍保留原题面。
+              {qualityLimit === 'all'
+                ? '将检查当前筛选范围内的全部题目，可关闭页面等待后台完成。'
+                : '每批结果都会写入 D1 并同步给后续新建的作答，历史试卷仍保留原题面。'}
             </p>
           </div>
         </div>
@@ -293,6 +299,7 @@ export function TaskLauncherDialog({ type, busy, onClose, onStart }: TaskLaunche
 export function TaskProgressCard({ task, onOpen }: { task: QuestionTask; onOpen: () => void }) {
   const progress = taskProgress(task);
   const active = task.status === 'queued' || task.status === 'running';
+  const showProgress = active && task.progressTotal > 0;
   return (
     <Card className="mt-4 overflow-hidden">
       <button
@@ -300,7 +307,7 @@ export function TaskProgressCard({ task, onOpen }: { task: QuestionTask; onOpen:
         onClick={onOpen}
         className="w-full px-4 py-3 text-left hover:bg-surface2/40"
       >
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-3">
           <span
             className={`flex h-9 w-9 items-center justify-center rounded-xl ${active ? 'bg-accent/10 text-accent' : task.status === 'completed' ? 'bg-green/10 text-green' : task.status === 'cancelled' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'}`}
           >
@@ -313,7 +320,7 @@ export function TaskProgressCard({ task, onOpen }: { task: QuestionTask; onOpen:
             )}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
               <p className="font-medium text-text">最近任务 · {taskTypeLabel(task.type)}</p>
               <span className={`text-xs font-semibold ${statusTone(task.status)}`}>
                 {STATUS_LABELS[task.status]}
@@ -321,14 +328,18 @@ export function TaskProgressCard({ task, onOpen }: { task: QuestionTask; onOpen:
             </div>
             <p className="mt-0.5 truncate text-xs text-text-dim">{task.stage}</p>
           </div>
-          <span className="text-sm font-semibold text-text">{progress}%</span>
+          {showProgress && (
+            <span className="shrink-0 text-sm font-semibold text-text">{progress}%</span>
+          )}
         </div>
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface2">
-          <div
-            className="h-full rounded-full bg-accent transition-[width] duration-500"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+        {showProgress && (
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface2">
+            <div
+              className="h-full rounded-full bg-accent transition-[width] duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        )}
       </button>
     </Card>
   );
@@ -348,6 +359,7 @@ export function TaskProgressDialog({
   if (!task) return null;
   const progress = taskProgress(task);
   const active = task.status === 'queued' || task.status === 'running';
+  const showProgress = active && task.progressTotal > 0;
   const statEntries = Object.entries(task.stats);
   return (
     <Dialog
@@ -380,17 +392,20 @@ export function TaskProgressDialog({
               </p>
               <p className="mt-1 text-sm text-text">{task.stage}</p>
             </div>
-            <span className="text-2xl font-semibold text-text">{progress}%</span>
+            {showProgress && <span className="text-2xl font-semibold text-text">{progress}%</span>}
           </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface2">
-            <div
-              className="h-full rounded-full bg-accent transition-[width] duration-500"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+          {showProgress && (
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface2">
+              <div
+                className="h-full rounded-full bg-accent transition-[width] duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
           <p className="mt-2 text-xs text-text-dim">
-            {task.progressCurrent} / {task.progressTotal || '-'} · 开始于{' '}
-            {formatDate(task.startedAt ?? task.createdAt)}
+            {active
+              ? `${task.progressCurrent} / ${task.progressTotal || '-'} · 开始于 ${formatDate(task.startedAt ?? task.createdAt)}`
+              : `完成于 ${formatDate(task.completedAt ?? task.updatedAt)}`}
           </p>
         </div>
 

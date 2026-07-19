@@ -11,8 +11,9 @@ import {
   type GenerateQuestionTaskParams,
   generateQuestionsForTarget,
   insertGeneratedQuestionBatch,
+  loadQualityQuestionBatch,
   markQuestionTaskRunning,
-  prepareQualityQuestions,
+  prepareQualityQuestionIds,
   type QualityQuestionTaskParams,
   type QuestionTaskPayload,
   type QuestionTaskStats,
@@ -83,7 +84,7 @@ export class QuestionTaskWorkflow extends WorkflowEntrypoint<
       await markQuestionTaskRunning(
         this.env.CONTENT_DB,
         taskId,
-        targets.length ? '准备调用 MiniMax 生成题目' : '没有匹配的知识点',
+        targets.length ? '准备调用 AI 生成题目' : '没有匹配的知识点',
         targets.length,
         now(),
       );
@@ -138,27 +139,40 @@ export class QuestionTaskWorkflow extends WorkflowEntrypoint<
     params: QualityQuestionTaskParams,
     step: WorkflowStep,
   ): Promise<QuestionTaskStats> {
-    const questions = await step.do('prepare quality questions', async () =>
-      prepareQualityQuestions(this.env.CONTENT_DB, params),
+    const questionIds = await step.do('prepare quality question ids', async () =>
+      prepareQualityQuestionIds(this.env.CONTENT_DB, params),
     );
     await step.do('start quality task', async () => {
       await markQuestionTaskRunning(
         this.env.CONTENT_DB,
         taskId,
-        questions.length ? '准备调用 MiniMax 逐批质检' : '没有匹配的题目',
-        questions.length,
+        questionIds.length ? '准备调用 AI 逐批质检' : '没有匹配的题目',
+        questionIds.length,
         now(),
       );
     });
 
     const stats: QuestionTaskStats = { checked: 0, passed: 0, failed: 0 };
-    const batchSize = 5;
-    for (let offset = 0; offset < questions.length; offset += batchSize) {
-      const batchIndex = Math.floor(offset / batchSize) + 1;
-      const batch = questions.slice(offset, offset + batchSize);
-      const decisions = await step.do(`quality review ${batchIndex}`, AI_STEP_CONFIG, async () =>
-        requestQualityDecisions(this.env, batch),
+    const workflowBatchSize = 20;
+    const aiBatchSize = 5;
+    for (let offset = 0; offset < questionIds.length; offset += workflowBatchSize) {
+      const batchIndex = Math.floor(offset / workflowBatchSize) + 1;
+      const batchIds = questionIds.slice(offset, offset + workflowBatchSize);
+      const batch = await step.do(`load quality batch ${batchIndex}`, async () =>
+        loadQualityQuestionBatch(this.env.CONTENT_DB, batchIds),
       );
+      const decisions = await step.do(`quality review ${batchIndex}`, AI_STEP_CONFIG, async () => {
+        const reviewed = [];
+        for (let aiOffset = 0; aiOffset < batch.length; aiOffset += aiBatchSize) {
+          reviewed.push(
+            ...(await requestQualityDecisions(
+              this.env,
+              batch.slice(aiOffset, aiOffset + aiBatchSize),
+            )),
+          );
+        }
+        return reviewed;
+      });
       const applied = await step.do(`apply quality review ${batchIndex}`, async () =>
         applyQualityQuestionBatch(
           this.env.CONTENT_DB,
@@ -175,21 +189,21 @@ export class QuestionTaskWorkflow extends WorkflowEntrypoint<
         await updateQuestionTaskProgress(this.env.CONTENT_DB, {
           taskId,
           eventKey: `quality-progress-${batchIndex}`,
-          stage: `已质检 ${stats.checked} / ${questions.length} 道`,
+          stage: `已质检 ${stats.checked} / ${questionIds.length} 道`,
           current: stats.checked,
-          total: questions.length,
+          total: questionIds.length,
           stats,
           level: applied.failed ? 'warning' : 'success',
           message: `本批 ${applied.checked} 道：${applied.passed} 道合格，${applied.failed} 道停用`,
           now: now(),
         });
       });
-      if (offset + batchSize < questions.length) {
+      if (offset + workflowBatchSize < questionIds.length) {
         await step.sleep(`pace quality ${batchIndex}`, '1 second');
       }
     }
 
-    const completedStage = questions.length
+    const completedStage = questionIds.length
       ? `质检完成：${stats.passed} 道合格，${stats.failed} 道停用`
       : '没有匹配的题目，未执行质检';
     await step.do('complete quality task', async () => {

@@ -85,7 +85,7 @@ export interface QualityQuestionTaskParams {
   grade?: number;
   semester?: '上' | '下';
   type?: QuestionType;
-  limit: 20 | 50 | 100 | 200;
+  limit: 20 | 50 | 100 | 200 | 'all';
 }
 
 export type QuestionTaskParams = GenerateQuestionTaskParams | QualityQuestionTaskParams;

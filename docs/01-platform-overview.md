@@ -29,7 +29,7 @@
         ├── GET /api/health
         ├── GET /api/questions 与 /api/admin/*
         │   └── Cloudflare D1
-        ├── Cloudflare Workflows → MiniMax 生成 / 质检
+        ├── Cloudflare Workflows → AI 生成 / 质检
         └── POST /api/ai/chat → 可配置 AI 上游
 ```
 

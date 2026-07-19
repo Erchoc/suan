@@ -14,11 +14,12 @@ import {
   insertGeneratedQuestionBatch,
   KNOWLEDGE_POINT_TARGETS,
   listQuestionTasks,
+  loadQualityQuestionBatch,
   markQuestionTaskRunning,
   parseGeneratedQuestions,
   parseQualityDecisions,
   parseQuestionTaskRequest,
-  prepareQualityQuestions,
+  prepareQualityQuestionIds,
   requestQualityDecisions,
   selectGenerationTargets,
   updateQuestionTaskProgress,
@@ -155,6 +156,9 @@ describe('question task validation and prompts', () => {
       type: 'quality',
       params: { scope: 'reported', grade: 2, semester: '下', type: 'choice', limit: 50 },
     });
+    expect(
+      parseQuestionTaskRequest({ type: 'quality', params: { scope: 'all', limit: 'all' } }),
+    ).toEqual({ type: 'quality', params: { scope: 'all', limit: 'all' } });
   });
 
   it.each([
@@ -194,7 +198,7 @@ describe('question task validation and prompts', () => {
     expect(() => parseQuestionTaskRequest(input)).toThrow(message);
   });
 
-  it('selects bounded knowledge point targets and builds explicit MiniMax prompts', () => {
+  it('selects bounded knowledge point targets and builds explicit AI prompts', () => {
     const allGradeOne = selectGenerationTargets({
       grade: 1,
       typeMode: 'auto',
@@ -328,15 +332,18 @@ describe('question task persistence and AI execution', () => {
     await expect(
       insertGeneratedQuestionBatch(testEnv.CONTENT_DB, 'task-1', 'generate-1', questions, NOW),
     ).resolves.toEqual(inserted);
-    await expect(
-      prepareQualityQuestions(testEnv.CONTENT_DB, {
-        scope: 'disabled',
-        grade: 1,
-        semester: '上',
-        type: 'fill_blank',
-        limit: 20,
-      }),
-    ).resolves.toHaveLength(2);
+    const qualityIds = await prepareQualityQuestionIds(testEnv.CONTENT_DB, {
+      scope: 'disabled',
+      grade: 1,
+      semester: '上',
+      type: 'fill_blank',
+      limit: 'all',
+    });
+    expect(qualityIds).toEqual(['1-1-90', '1-1-91']);
+    await expect(loadQualityQuestionBatch(testEnv.CONTENT_DB, qualityIds)).resolves.toMatchObject([
+      { id: '1-1-90' },
+      { id: '1-1-91' },
+    ]);
 
     const reviewed = await applyQualityQuestionBatch(
       testEnv.CONTENT_DB,
@@ -388,7 +395,7 @@ describe('question task persistence and AI execution', () => {
     ).resolves.toEqual({ enable: 0, check_message: '答案不唯一' });
   });
 
-  it('calls MiniMax for generation and quality with bounded completion output', async () => {
+  it('calls the configured AI provider with bounded completion output', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(

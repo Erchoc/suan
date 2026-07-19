@@ -67,7 +67,7 @@
         ├── /api/questions 与 /api/admin/*
         │   └── Cloudflare D1（题库、历史版本、用户反馈、AI 任务进度）
         ├── Cloudflare Workflows
-        │   └── MiniMax 分批生成 / 质检 → D1
+        │   └── AI 分批生成 / 质检 → D1
         └── /api/ai/chat → 可配置 AI 上游
 ```
 
@@ -75,7 +75,7 @@
 - 图谱与图表：`@xyflow/react`、Dagre、Recharts
 - 接口：Hono，运行于 Cloudflare Workers
 - 内容数据库：Cloudflare D1；后台编辑与学生端发布快照分离
-- 长任务：Cloudflare Workflows；生成与质检按小批次调用 MiniMax，任务进度持久化到 D1
+- 长任务：Cloudflare Workflows；生成与质检按小批次调用可配置 AI 上游，任务进度持久化到 D1
 - 静态资源：由 Worker Assets 托管，未知前端路由回退到单页应用
 - 部署配置：`wrangler.jsonc` 顶层使用独立的 `suan-starter` 并可部署到 `*.workers.dev`，项目生产环境才使用 `suan` 与 `env.production` 中的 `suan.longye.site/*`
 
@@ -89,7 +89,7 @@
 
 - Cloudflare 账号
 - GitHub 或 GitLab 账号
-- 一个 OpenAI Chat 兼容的 AI API Key；项目生产环境当前使用 MiniMax
+- 一个受支持协议的 AI API Key，可按环境切换兼容的模型供应商
 - 一段至少 24 个字符、只用于本项目的随机 `ADMIN_SESSION_SECRET`
 
 D1 是线上题库的唯一数据源。首次部署需要在部署环境应用 `migrations/` 并执行一次幂等题库初始化，具体命令见下文；未初始化时题库接口会明确返回不可用，不再回退公开 JSON。

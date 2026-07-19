@@ -2,8 +2,9 @@ import { readAIConfig, requestAIText } from '../scripts/aiText.ts';
 import graphData from '../src/data/knowledge-graph.json';
 import {
   applyQualityQuestionBatch,
+  getQualityQuestionBatch,
   insertGeneratedQuestionBatch,
-  listQuestionsForQuality,
+  listQuestionIdsForQuality,
   type QualityCheckDecision,
   QuestionBankError,
   type QuestionDifficulty,
@@ -30,7 +31,7 @@ export interface QualityQuestionTaskParams {
   grade?: number;
   semester?: '上' | '下';
   type?: QuestionType;
-  limit: 20 | 50 | 100 | 200;
+  limit: 20 | 50 | 100 | 200 | 'all';
 }
 
 export type QuestionTaskParams = GenerateQuestionTaskParams | QualityQuestionTaskParams;
@@ -214,8 +215,8 @@ function readQualityParams(value: unknown): QualityQuestionTaskParams {
   ) {
     throw new QuestionBankError('VALIDATION', 'type 不合法');
   }
-  const limit = Number(value.limit);
-  if (!QUALITY_LIMITS.has(limit)) {
+  const limit = value.limit === 'all' ? 'all' : Number(value.limit);
+  if (limit !== 'all' && !QUALITY_LIMITS.has(limit)) {
     throw new QuestionBankError('VALIDATION', 'limit 不合法');
   }
   return {
@@ -223,7 +224,7 @@ function readQualityParams(value: unknown): QualityQuestionTaskParams {
     ...(grade ? { grade } : {}),
     ...(semester ? { semester } : {}),
     ...(type ? { type: type as QuestionType } : {}),
-    limit: limit as 20 | 50 | 100 | 200,
+    limit: limit as QualityQuestionTaskParams['limit'],
   };
 }
 
@@ -783,18 +784,25 @@ export async function requestQualityDecisions(
   );
 }
 
-export async function prepareQualityQuestions(
+export async function prepareQualityQuestionIds(
   db: D1Database,
   params: QualityQuestionTaskParams,
-): Promise<QuestionRecord[]> {
+): Promise<string[]> {
   const gradeNames = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'];
-  return listQuestionsForQuality(db, {
+  return listQuestionIdsForQuality(db, {
     scope: params.scope,
     ...(params.grade ? { grade: gradeNames[params.grade - 1] } : {}),
     ...(params.semester ? { semester: `${params.semester}学期` } : {}),
     ...(params.type ? { type: params.type } : {}),
-    limit: params.limit,
+    ...(params.limit === 'all' ? {} : { limit: params.limit }),
   });
+}
+
+export function loadQualityQuestionBatch(
+  db: D1Database,
+  questionIds: string[],
+): Promise<QuestionRecord[]> {
+  return getQualityQuestionBatch(db, questionIds);
 }
 
 export { applyQualityQuestionBatch, insertGeneratedQuestionBatch };

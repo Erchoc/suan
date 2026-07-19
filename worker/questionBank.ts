@@ -72,7 +72,7 @@ export interface QualityQuestionFilters {
   grade?: string;
   semester?: string;
   type?: QuestionType;
-  limit: number;
+  limit?: number;
 }
 
 export interface QualityCheckDecision {
@@ -946,7 +946,7 @@ export async function insertGeneratedQuestionBatch(
       .prepare(
         `INSERT INTO question_audit_logs
           (revision, question_id, action, before_json, after_json, actor, created_at)
-         SELECT draft_revision, NULL, 'ai_generate', NULL, ?, 'minimax', ?
+         SELECT draft_revision, NULL, 'ai_generate', NULL, ?, 'ai', ?
          FROM question_bank_meta WHERE singleton_id = 1`,
       )
       .bind(JSON.stringify({ taskId, batchKey, questionIds }), now),
@@ -961,10 +961,10 @@ export async function insertGeneratedQuestionBatch(
   return result;
 }
 
-export async function listQuestionsForQuality(
+export async function listQuestionIdsForQuality(
   db: D1Database,
   filters: QualityQuestionFilters,
-): Promise<QuestionRecord[]> {
+): Promise<string[]> {
   const clauses: string[] = [];
   const values: unknown[] = [];
   if (filters.scope === 'enabled') clauses.push('q.enable = 1');
@@ -985,15 +985,37 @@ export async function listQuestionsForQuality(
     values.push(value);
   }
   const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
+  const limit = filters.limit === undefined ? '' : ' LIMIT ?';
+  if (filters.limit !== undefined) values.push(filters.limit);
   const result = await db
     .prepare(
-      `SELECT ${ADMIN_QUESTION_COLUMNS} FROM questions q${where}
+      `SELECT q.id FROM questions q${where}
        ORDER BY CASE WHEN q.check_message IS NULL THEN 0 ELSE 1 END DESC,
-        q.updated_at DESC, q.id ASC LIMIT ?`,
+        q.updated_at DESC, q.id ASC${limit}`,
     )
-    .bind(...values, filters.limit)
+    .bind(...values)
+    .all<{ id: string }>();
+  return result.results.map(row => row.id);
+}
+
+export async function getQualityQuestionBatch(
+  db: D1Database,
+  questionIds: string[],
+): Promise<QuestionRecord[]> {
+  if (questionIds.length === 0 || questionIds.length > 20) {
+    throw new QuestionBankError('VALIDATION', '每批读取题目数量必须为 1 到 20');
+  }
+  const placeholders = questionIds.map(() => '?').join(', ');
+  const result = await db
+    .prepare(`SELECT ${ADMIN_QUESTION_COLUMNS} FROM questions q WHERE q.id IN (${placeholders})`)
+    .bind(...questionIds)
     .all<QuestionRow>();
-  return result.results.map(rowToQuestion);
+  const questionsById = new Map(result.results.map(row => [row.id, rowToQuestion(row)]));
+  return questionIds.map(id => {
+    const question = questionsById.get(id);
+    if (!question) throw new QuestionBankError('NOT_FOUND', `质检题目 ${id} 不存在`);
+    return question;
+  });
 }
 
 export async function applyQualityQuestionBatch(
@@ -1067,7 +1089,7 @@ export async function applyQualityQuestionBatch(
         .prepare(
           `INSERT INTO question_audit_logs
             (revision, question_id, action, before_json, after_json, actor, created_at)
-           SELECT draft_revision, ?, 'ai_quality', ?, ?, 'minimax', ?
+           SELECT draft_revision, ?, 'ai_quality', ?, ?, 'ai', ?
            FROM question_bank_meta WHERE singleton_id = 1`,
         )
         .bind(

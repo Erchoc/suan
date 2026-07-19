@@ -406,7 +406,7 @@ export default function AdminQuestionBankPage() {
     !!result?.data.length && result.data.every(question => selected.has(question.id));
 
   return (
-    <main className="min-h-screen bg-bg px-3 pb-24 pt-16 sm:px-6 sm:pt-20">
+    <main className="min-h-screen bg-bg px-3 pb-8 pt-16 sm:px-6 sm:pb-24 sm:pt-20">
       <div className="mx-auto max-w-[1500px]">
         <header className="flex flex-col gap-4 py-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -631,9 +631,8 @@ export default function AdminQuestionBankPage() {
                           <Badge color={enabled ? '#2a9d8f' : '#f25f4c'}>
                             {enabled ? '已启用' : '已禁用'}
                           </Badge>
-                          <Badge>{TYPE_LABELS[question.type] ?? question.type}</Badge>
                           <span className="text-xs text-text-dim">
-                            {question.grade} ·{' '}
+                            {question.grade} / {TYPE_LABELS[question.type] ?? question.type} /{' '}
                             {DIFFICULTY_LABELS[question.difficulty] ?? question.difficulty}
                           </span>
                         </div>
@@ -694,13 +693,13 @@ export default function AdminQuestionBankPage() {
             <table className="w-full min-w-[1180px] table-fixed border-collapse text-left text-sm">
               <colgroup>
                 <col className="w-12" />
-                <col className="w-[30%]" />
-                <col className="w-[17%]" />
+                <col className="w-[27%]" />
+                <col className="w-[15%]" />
                 <col className="w-28" />
-                <col className="w-28" />
-                <col className="w-56" />
-                <col className="w-40" />
-                <col className="w-24" />
+                <col className="w-32" />
+                <col className="w-48" />
+                <col className="w-36" />
+                <col className="w-32" />
               </colgroup>
               <thead className="bg-surface2 text-xs text-text-dim">
                 <tr>
@@ -721,7 +720,7 @@ export default function AdminQuestionBankPage() {
                   <th className="whitespace-nowrap px-3 py-3">题目 / ID</th>
                   <th className="whitespace-nowrap px-3 py-3">知识点</th>
                   <th className="whitespace-nowrap px-3 py-3">年级学期</th>
-                  <th className="whitespace-nowrap px-3 py-3">题型难度</th>
+                  <th className="whitespace-nowrap px-3 py-3">题型 / 难度</th>
                   <th className="whitespace-nowrap px-3 py-3">状态</th>
                   <th className="whitespace-nowrap px-3 py-3">用户反馈</th>
                   <th className="whitespace-nowrap px-3 py-3">操作</th>
@@ -778,10 +777,12 @@ export default function AdminQuestionBankPage() {
                           {question.semester}
                         </td>
                         <td className="px-3 py-3 align-top">
-                          <div className="flex flex-col items-start gap-1">
-                            <Badge>{TYPE_LABELS[question.type] ?? question.type}</Badge>
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="font-medium text-text">
+                              {TYPE_LABELS[question.type] ?? question.type}
+                            </span>
                             <span className="text-xs text-text-dim">
-                              {DIFFICULTY_LABELS[question.difficulty] ?? question.difficulty}
+                              / {DIFFICULTY_LABELS[question.difficulty] ?? question.difficulty}
                             </span>
                           </div>
                         </td>
@@ -852,21 +853,28 @@ export default function AdminQuestionBankPage() {
               </tbody>
             </table>
           </div>
-          <footer className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-text-dim">
-            <span>筛选结果 {result?.total ?? 0} 道</span>
-            <div className="flex items-center gap-3">
+          <footer className="border-t border-border px-3 py-3 text-sm text-text-dim sm:flex sm:items-center sm:justify-between sm:px-4">
+            <div className="flex items-center justify-between gap-3">
+              <span>筛选结果 {result?.total ?? 0} 道</span>
+              <span className="whitespace-nowrap sm:hidden">
+                {filters.page} / {totalPages} 页
+              </span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-0 sm:flex sm:items-center sm:gap-3">
               <Button
                 size="sm"
+                className="w-full whitespace-nowrap sm:w-auto"
                 onClick={() => setFilters(current => ({ ...current, page: current.page - 1 }))}
                 disabled={filters.page <= 1 || loading}
               >
                 <ChevronLeft size={14} /> 上一页
               </Button>
-              <span>
+              <span className="hidden whitespace-nowrap sm:inline">
                 第 {filters.page} / {totalPages} 页
               </span>
               <Button
                 size="sm"
+                className="w-full whitespace-nowrap sm:w-auto"
                 onClick={() => setFilters(current => ({ ...current, page: current.page + 1 }))}
                 disabled={filters.page >= totalPages || loading}
               >
