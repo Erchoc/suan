@@ -44,7 +44,7 @@ interface ExamStore {
   setTimeLimit: (minutes: number) => void;
   setFilterChineseInput: (value: boolean) => void;
 
-  createSession: (questions: Question[]) => string;
+  createSession: (questions: Question[], questionBankVersion?: number) => string;
   startSession: (sessionId: string) => void;
   setAnswer: (sessionId: string, questionId: string, answers: string[]) => void;
   setChoiceAnswer: (sessionId: string, questionId: string, label: string) => void;
@@ -129,13 +129,14 @@ export const useExamStore = create<ExamStore>()(
       setFilterChineseInput: value =>
         set(state => ({ config: { ...state.config, filterChineseInput: value } })),
 
-      createSession: questions => {
+      createSession: (questions, questionBankVersion) => {
         const sessionId = crypto.randomUUID();
         const { config } = get();
         const session: ExamSession = {
           sessionId,
           config: { ...config, selectedUnitIds: new Set(config.selectedUnitIds) },
           questions,
+          questionBankVersion,
           answers: {},
           choiceAnswers: {},
           issueReports: {},

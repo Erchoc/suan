@@ -1,5 +1,6 @@
 import {
   Archive,
+  Ban,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -7,6 +8,7 @@ import {
   Download,
   Edit3,
   Eye,
+  Flag,
   KeyRound,
   RefreshCw,
   Search,
@@ -22,60 +24,59 @@ import Dialog from '../../components/ui/Dialog';
 import Select, { type SelectOption } from '../../components/ui/Select';
 import {
   AdminApiError,
+  type AdminQuestion,
   type AdminQuestionFilters,
   type AdminQuestionList,
   batchSetAdminQuestionStatus,
+  dismissAdminQuestionReports,
   exportAdminQuestions,
   getAdminSession,
+  listAdminQuestionReports,
   listAdminQuestions,
   listQuestionAudit,
   loginAdmin,
   publishAdminQuestionBank,
   type QuestionAuditEntry,
+  type QuestionReportEntry,
   updateAdminQuestion,
 } from '../../data/adminQuestionBank';
-import type { Question } from '../../types';
 import QuestionEditor from './QuestionEditor';
 
 const DEFAULT_FILTERS: AdminQuestionFilters = { page: 1, pageSize: 30 };
 const GRADE_OPTIONS = [
-  { value: '', label: '全部年级' },
+  { value: '', label: '全部' },
   ...['一', '二', '三', '四', '五', '六'].map(grade => ({
     value: `${grade}年级`,
     label: `${grade}年级`,
   })),
 ] satisfies SelectOption[];
 const SEMESTER_OPTIONS = [
-  { value: '', label: '全部学期' },
+  { value: '', label: '全部' },
   { value: '上学期', label: '上学期' },
   { value: '下学期', label: '下学期' },
 ] satisfies SelectOption[];
 const DIFFICULTY_OPTIONS = [
-  { value: '', label: '全部难度' },
+  { value: '', label: '全部' },
   { value: 'easy', label: '简单' },
   { value: 'medium', label: '中等' },
   { value: 'hard', label: '困难' },
 ] satisfies SelectOption[];
 const TYPE_OPTIONS = [
-  { value: '', label: '全部题型' },
+  { value: '', label: '全部' },
   { value: 'fill_blank', label: '填空' },
   { value: 'choice', label: '选择' },
   { value: 'mixed', label: '综合' },
 ] satisfies SelectOption[];
-const STATUS_OPTIONS = [
-  { value: '', label: '全部状态' },
-  { value: 'enabled', label: '已启用' },
-  { value: 'disabled', label: '已禁用' },
-] satisfies SelectOption[];
-
 type PendingAction =
   | { type: 'batch'; enable: boolean; ids: string[] }
-  | { type: 'publish'; revision: number };
+  | { type: 'publish'; revision: number }
+  | { type: 'dismiss'; questionId: string };
 const ACTION_LABELS: Record<string, string> = {
   seed: '初始化题库',
   update: '编辑题目',
   batch_enable: '批量启用',
   batch_disable: '批量禁用',
+  dismiss_reports: '忽略反馈',
   publish: '发布题库',
 };
 
@@ -130,16 +131,26 @@ function StatCard({
   label,
   value,
   tone = 'text-text',
+  active,
+  onClick,
 }: {
   label: string;
   value: string | number;
   tone?: string;
+  active: boolean;
+  onClick: () => void;
 }) {
   return (
-    <Card className="px-4 py-3">
-      <p className="text-xs text-text-dim">{label}</p>
-      <p className={`mt-1 text-xl font-semibold ${tone}`}>{value}</p>
-    </Card>
+    <button type="button" aria-pressed={active} onClick={onClick} className="text-left">
+      <Card
+        className={`h-full px-4 py-3 transition-colors hover:border-accent/60 ${
+          active ? 'border-accent bg-accent/5 ring-2 ring-accent/15' : ''
+        }`}
+      >
+        <p className="text-xs text-text-dim">{label}</p>
+        <p className={`mt-1 text-xl font-semibold ${tone}`}>{value}</p>
+      </Card>
+    </button>
   );
 }
 
@@ -189,7 +200,10 @@ export default function AdminQuestionBankPage() {
   const [queryInput, setQueryInput] = useState('');
   const [result, setResult] = useState<AdminQuestionList | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [editing, setEditing] = useState<Question | null>(null);
+  const [editing, setEditing] = useState<AdminQuestion | null>(null);
+  const [reportQuestion, setReportQuestion] = useState<AdminQuestion | null>(null);
+  const [reports, setReports] = useState<QuestionReportEntry[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
   const [audit, setAudit] = useState<QuestionAuditEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -268,6 +282,33 @@ export default function AdminQuestionBankPage() {
     setPendingAction({ type: 'batch', enable, ids });
   };
 
+  const requestQuestionStatus = (question: AdminQuestion, enable: boolean) => {
+    setActionReason(enable ? '' : (question.reportSummary?.latestReason ?? ''));
+    setActionError(null);
+    setPendingAction({ type: 'batch', enable, ids: [question.id] });
+  };
+
+  const openQuestionReports = async (question: AdminQuestion) => {
+    setReportQuestion(question);
+    setReports([]);
+    setReportsLoading(true);
+    try {
+      setReports((await listAdminQuestionReports(question.id)).data);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '反馈记录加载失败');
+      setReportQuestion(null);
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+
+  const requestDismissReports = (question: AdminQuestion) => {
+    setReportQuestion(null);
+    setActionReason('核实后确认题目无需修改');
+    setActionError(null);
+    setPendingAction({ type: 'dismiss', questionId: question.id });
+  };
+
   const requestPublish = () => {
     if (!result || !hasUnpublishedChanges) return;
     setActionError(null);
@@ -283,8 +324,16 @@ export default function AdminQuestionBankPage() {
   const handleConfirmAction = async () => {
     if (!pendingAction) return;
     const reason = actionReason.trim();
-    if (pendingAction.type === 'batch' && !pendingAction.enable && !reason) {
-      setActionError('请填写禁用原因，方便后续审计和修复。');
+    if (
+      ((pendingAction.type === 'batch' && !pendingAction.enable) ||
+        pendingAction.type === 'dismiss') &&
+      !reason
+    ) {
+      setActionError(
+        pendingAction.type === 'dismiss'
+          ? '请填写忽略原因，方便后续审计。'
+          : '请填写禁用原因，方便后续审计和修复。',
+      );
       return;
     }
     setSaving(true);
@@ -296,8 +345,10 @@ export default function AdminQuestionBankPage() {
           pendingAction.enable,
           pendingAction.enable ? undefined : reason,
         );
-      } else {
+      } else if (pendingAction.type === 'publish') {
         await publishAdminQuestionBank(pendingAction.revision);
+      } else {
+        await dismissAdminQuestionReports(pendingAction.questionId, reason);
       }
       closeActionDialog();
       await load();
@@ -362,24 +413,33 @@ export default function AdminQuestionBankPage() {
             </div>
             <h1 className="mt-2 font-serif text-3xl font-semibold text-text">题库资产后台</h1>
             <p className="mt-2 max-w-2xl text-sm text-text-dim">
-              编辑先进入草稿；只有显式发布后才更新学生端题库，学生端运行时只读取 D1 发布版本。
+              处理用户反馈、修复或停用问题题目；发布修改后，只影响后续新建的作答。
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={handleAudit} disabled={saving}>
-              <Clock3 size={15} /> 审计
-            </Button>
-            <Button onClick={handleExport} disabled={saving}>
-              <Download size={15} /> 导出
-            </Button>
-            <Button
-              onClick={requestPublish}
-              variant="primary"
-              disabled={!hasUnpublishedChanges || saving}
+          <div className="flex flex-col items-start gap-2 lg:items-end">
+            <p
+              className={`text-xs font-medium ${
+                hasUnpublishedChanges ? 'text-amber-500' : 'text-green'
+              }`}
             >
-              <UploadCloud size={15} />
-              {hasUnpublishedChanges ? '发布草稿' : '已是最新'}
-            </Button>
+              {hasUnpublishedChanges ? '有修改待发布，学生暂时看不到' : '学生题库已同步'}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleAudit} disabled={saving}>
+                <Clock3 size={15} /> 审计
+              </Button>
+              <Button onClick={handleExport} disabled={saving}>
+                <Download size={15} /> 导出
+              </Button>
+              <Button
+                onClick={requestPublish}
+                variant="primary"
+                disabled={!hasUnpublishedChanges || saving}
+              >
+                <UploadCloud size={15} />
+                {hasUnpublishedChanges ? '发布修改' : '无需发布'}
+              </Button>
+            </div>
           </div>
         </header>
 
@@ -392,15 +452,61 @@ export default function AdminQuestionBankPage() {
           </div>
         )}
 
-        <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <StatCard label="题目总量" value={result?.stats.total ?? '-'} />
-          <StatCard label="已启用" value={result?.stats.enabled ?? '-'} tone="text-green" />
-          <StatCard label="已禁用" value={result?.stats.disabled ?? '-'} tone="text-accent2" />
-          <StatCard label="草稿修订" value={result ? `r${result.meta.draftRevision}` : '-'} />
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard
-            label="线上版本"
-            value={result ? `r${result.meta.publishedRevision}` : '-'}
-            tone={hasUnpublishedChanges ? 'text-amber-500' : 'text-green'}
+            label="全部题目"
+            value={result?.stats.total ?? '-'}
+            active={!filters.status && !filters.attention}
+            onClick={() =>
+              setFilters(current => ({
+                ...current,
+                page: 1,
+                status: undefined,
+                attention: undefined,
+              }))
+            }
+          />
+          <StatCard
+            label="正常使用"
+            value={result?.stats.enabled ?? '-'}
+            tone="text-green"
+            active={filters.status === 'enabled' && !filters.attention}
+            onClick={() =>
+              setFilters(current => ({
+                ...current,
+                page: 1,
+                status: 'enabled',
+                attention: undefined,
+              }))
+            }
+          />
+          <StatCard
+            label="已停用"
+            value={result?.stats.disabled ?? '-'}
+            tone="text-accent2"
+            active={filters.status === 'disabled' && !filters.attention}
+            onClick={() =>
+              setFilters(current => ({
+                ...current,
+                page: 1,
+                status: 'disabled',
+                attention: undefined,
+              }))
+            }
+          />
+          <StatCard
+            label="待处理反馈"
+            value={result?.stats.reported ?? '-'}
+            tone="text-red-500"
+            active={filters.attention === 'reported'}
+            onClick={() =>
+              setFilters(current => ({
+                ...current,
+                page: 1,
+                status: undefined,
+                attention: 'reported',
+              }))
+            }
           />
         </section>
 
@@ -421,20 +527,23 @@ export default function AdminQuestionBankPage() {
               </div>
               <Button type="submit">搜索</Button>
             </form>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Select
+                label="年级"
                 value={filters.grade ?? ''}
                 options={GRADE_OPTIONS}
                 onChange={value => updateFilter('grade', value || undefined)}
                 ariaLabel="按年级筛选"
               />
               <Select
+                label="学期"
                 value={filters.semester ?? ''}
                 options={SEMESTER_OPTIONS}
                 onChange={value => updateFilter('semester', value || undefined)}
                 ariaLabel="按学期筛选"
               />
               <Select
+                label="难度"
                 value={filters.difficulty ?? ''}
                 options={DIFFICULTY_OPTIONS}
                 onChange={value =>
@@ -446,6 +555,7 @@ export default function AdminQuestionBankPage() {
                 ariaLabel="按难度筛选"
               />
               <Select
+                label="题型"
                 value={filters.type ?? ''}
                 options={TYPE_OPTIONS}
                 onChange={value =>
@@ -453,16 +563,14 @@ export default function AdminQuestionBankPage() {
                 }
                 ariaLabel="按题型筛选"
               />
-              <Select
-                value={filters.status ?? ''}
-                options={STATUS_OPTIONS}
-                onChange={value =>
-                  updateFilter('status', (value || undefined) as AdminQuestionFilters['status'])
-                }
-                ariaLabel="按状态筛选"
-              />
             </div>
-            <Button onClick={() => setFilters(DEFAULT_FILTERS)} variant="ghost">
+            <Button
+              onClick={() => {
+                setQueryInput('');
+                setFilters(DEFAULT_FILTERS);
+              }}
+              variant="ghost"
+            >
               <RefreshCw size={14} /> 重置
             </Button>
           </div>
@@ -539,6 +647,20 @@ export default function AdminQuestionBankPage() {
                             {question.checkMessage}
                           </p>
                         )}
+                        {question.reportSummary && (
+                          <button
+                            type="button"
+                            onClick={() => void openQuestionReports(question)}
+                            className="mt-3 w-full rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-left transition-colors hover:border-red-500/40"
+                          >
+                            <span className="flex items-center gap-1.5 text-xs font-semibold text-red-500">
+                              <Flag size={13} /> {question.reportSummary.openCount} 条待处理反馈
+                            </span>
+                            <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-text-dim">
+                              {question.reportSummary.latestReason}
+                            </span>
+                          </button>
+                        )}
                       </div>
                       <div className="flex flex-col gap-1">
                         <button
@@ -558,6 +680,16 @@ export default function AdminQuestionBankPage() {
                         >
                           <Eye size={16} />
                         </a>
+                        {enabled && (
+                          <button
+                            type="button"
+                            onClick={() => requestQuestionStatus(question, false)}
+                            className="rounded-lg p-2 text-red-500 hover:bg-red-500/10"
+                            aria-label={`停用 ${question.id}`}
+                          >
+                            <Ban size={16} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -587,20 +719,21 @@ export default function AdminQuestionBankPage() {
                   <th className="px-3 py-3">年级学期</th>
                   <th className="px-3 py-3">类型</th>
                   <th className="px-3 py-3">状态</th>
-                  <th className="w-28 px-3 py-3">操作</th>
+                  <th className="px-3 py-3">用户反馈</th>
+                  <th className="w-36 px-3 py-3">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-16 text-center text-text-dim">
+                    <td colSpan={8} className="px-4 py-16 text-center text-text-dim">
                       加载题库中…
                     </td>
                   </tr>
                 )}
                 {!loading && result?.data.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-16 text-center text-text-dim">
+                    <td colSpan={8} className="px-4 py-16 text-center text-text-dim">
                       没有匹配题目
                     </td>
                   </tr>
@@ -659,6 +792,24 @@ export default function AdminQuestionBankPage() {
                             </p>
                           )}
                         </td>
+                        <td className="max-w-xs px-3 py-3 align-top">
+                          {question.reportSummary ? (
+                            <button
+                              type="button"
+                              onClick={() => void openQuestionReports(question)}
+                              className="group text-left"
+                            >
+                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-500 group-hover:bg-red-500/15">
+                                <Flag size={12} /> {question.reportSummary.openCount} 条待处理
+                              </span>
+                              <span className="mt-1.5 block line-clamp-2 text-xs leading-relaxed text-text-dim group-hover:text-text">
+                                {question.reportSummary.latestReason}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className="text-xs text-text-dim/60">暂无反馈</span>
+                          )}
+                        </td>
                         <td className="px-3 py-3 align-top">
                           <div className="flex gap-1">
                             <a
@@ -674,10 +825,20 @@ export default function AdminQuestionBankPage() {
                               type="button"
                               onClick={() => setEditing(question)}
                               className="rounded-lg p-2 text-text-dim hover:bg-surface2 hover:text-accent"
-                              title="编辑草稿"
+                              title="编辑题目"
                             >
                               <Edit3 size={15} />
                             </button>
+                            {enabled && (
+                              <button
+                                type="button"
+                                onClick={() => requestQuestionStatus(question, false)}
+                                className="rounded-lg p-2 text-text-dim hover:bg-red-500/10 hover:text-red-500"
+                                title="立即停用"
+                              >
+                                <Ban size={15} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -721,20 +882,86 @@ export default function AdminQuestionBankPage() {
       )}
       {audit && <AuditDrawer entries={audit} onClose={() => setAudit(null)} />}
       <Dialog
+        open={reportQuestion !== null}
+        title={reportQuestion ? `${reportQuestion.id} 的用户反馈` : '用户反馈'}
+        description="反馈绑定了学生当时看到的题面；编辑或停用后，需要发布修改才会对后续作答生效。"
+        onClose={() => setReportQuestion(null)}
+        footer={
+          reportQuestion ? (
+            <>
+              <Button onClick={() => requestDismissReports(reportQuestion)}>忽略这些反馈</Button>
+              {reportQuestion.enable !== false && (
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setReportQuestion(null);
+                    requestQuestionStatus(reportQuestion, false);
+                  }}
+                >
+                  <Ban size={14} /> 先停用
+                </Button>
+              )}
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setReportQuestion(null);
+                  setEditing(reportQuestion);
+                }}
+              >
+                <Edit3 size={14} /> 编辑修复
+              </Button>
+            </>
+          ) : undefined
+        }
+      >
+        <div className="max-h-[52vh] space-y-3 overflow-y-auto pr-1">
+          {reportsLoading && <p className="py-8 text-center text-sm text-text-dim">加载反馈中…</p>}
+          {!reportsLoading && reports.length === 0 && (
+            <p className="py-8 text-center text-sm text-text-dim">没有待处理反馈</p>
+          )}
+          {!reportsLoading &&
+            reports.map(report => (
+              <Card key={report.id} className="p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-500">
+                    <Flag size={12} /> {report.source === 'exam' ? '考试反馈' : '复习反馈'}
+                  </span>
+                  <span className="text-xs text-text-dim">
+                    题库版本 {report.publishedRevision} · {formatDate(report.createdAt)}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm font-medium leading-relaxed text-text">
+                  {report.reason}
+                </p>
+                <div className="mt-3 rounded-xl bg-surface2 px-3 py-2.5">
+                  <p className="text-[11px] font-medium text-text-dim">学生当时看到的题目</p>
+                  <p className="mt-1 line-clamp-4 text-xs leading-relaxed text-text">
+                    {report.questionSnapshot.question}
+                  </p>
+                </div>
+              </Card>
+            ))}
+        </div>
+      </Dialog>
+      <Dialog
         open={pendingAction !== null}
         title={
           pendingAction?.type === 'publish'
-            ? '发布当前草稿？'
-            : pendingAction?.enable
-              ? '启用所选题目？'
-              : '禁用所选题目？'
+            ? '发布本次修改？'
+            : pendingAction?.type === 'dismiss'
+              ? '忽略这些反馈？'
+              : pendingAction?.enable
+                ? '启用所选题目？'
+                : '禁用所选题目？'
         }
         description={
           pendingAction?.type === 'publish'
-            ? `发布后学生端将读取草稿修订 r${pendingAction.revision}。`
-            : pendingAction
-              ? `本次操作包含 ${pendingAction.ids.length} 道题，提交后会写入审计记录。`
-              : undefined
+            ? '发布后，新建的作答会使用本次修改；已有试卷和做题记录继续保留原题面。'
+            : pendingAction?.type === 'dismiss'
+              ? '确认题目无需修改后，可将这些反馈移出待处理列表，操作会保留审计记录。'
+              : pendingAction
+                ? `本次操作包含 ${pendingAction.ids.length} 道题，提交后会写入审计记录。`
+                : undefined
         }
         dismissible={!saving}
         onClose={closeActionDialog}
@@ -754,23 +981,30 @@ export default function AdminQuestionBankPage() {
                 ? '处理中…'
                 : pendingAction?.type === 'publish'
                   ? '确认发布'
-                  : pendingAction?.enable
-                    ? '确认启用'
-                    : '确认禁用'}
+                  : pendingAction?.type === 'dismiss'
+                    ? '确认忽略'
+                    : pendingAction?.enable
+                      ? '确认启用'
+                      : '确认禁用'}
             </Button>
           </>
         }
       >
-        {pendingAction?.type === 'batch' && !pendingAction.enable && (
+        {((pendingAction?.type === 'batch' && !pendingAction.enable) ||
+          pendingAction?.type === 'dismiss') && (
           <label className="block text-sm font-medium text-text">
-            禁用原因
+            {pendingAction.type === 'dismiss' ? '忽略原因' : '禁用原因'}
             <textarea
               data-dialog-autofocus
               value={actionReason}
               onChange={event => setActionReason(event.target.value)}
               rows={4}
               maxLength={500}
-              placeholder="说明题目需要下线的原因，方便后续修复"
+              placeholder={
+                pendingAction.type === 'dismiss'
+                  ? '说明为什么确认题目无需修改'
+                  : '说明题目需要下线的原因，方便后续修复'
+              }
               className="mt-2 w-full resize-y rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-text outline-none transition-colors placeholder:text-text-dim/60 focus:border-accent focus:ring-2 focus:ring-accent/20"
             />
           </label>

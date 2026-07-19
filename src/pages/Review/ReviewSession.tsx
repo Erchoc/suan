@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import QuestionCard from '../../components/QuestionCard/QuestionCard';
 import Button from '../../components/ui/Button';
+import { submitQuestionReport } from '../../data/questionReports';
 import { useReviewStore } from '../../stores/reviewStore';
 import type { QuestionType, ReviewResult } from '../../types';
 
@@ -268,7 +269,21 @@ export default function ReviewSessionPage() {
                 }}
                 onSkip={handleNext}
                 onBookmark={() => sessionId && toggleBookmark(sessionId, q.id)}
-                onIssueReport={reason => sessionId && setIssueReport(sessionId, q.id, reason)}
+                onIssueReport={async reason => {
+                  if (!sessionId) return;
+                  const publishedRevision = q.publishedRevision ?? session.questionBankVersion;
+                  if (!publishedRevision) {
+                    throw new Error('这份旧复习记录缺少题库版本，请重新创建后反馈');
+                  }
+                  await submitQuestionReport({
+                    questionId: q.id,
+                    publishedRevision,
+                    reason,
+                    source: 'review',
+                    sessionId,
+                  });
+                  setIssueReport(sessionId, q.id, reason);
+                }}
                 onNext={handleNext}
                 onPrev={() => {
                   if (currentIndex > 0) setCurrentIndex(currentIndex - 1);

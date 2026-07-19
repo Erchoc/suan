@@ -2,14 +2,17 @@ import { applyD1Migrations, type D1Migration, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   batchSetQuestionStatus,
+  dismissOpenQuestionReports,
   getQuestionBankMeta,
   isMissingQuestionBankSchema,
   listAdminQuestions,
+  listOpenQuestionReports,
   listPublishedQuestions,
   listQuestionAudit,
   parseQuestionPatch,
   publishQuestionBank,
   QuestionBankError,
+  submitQuestionReport,
   updateQuestion,
 } from './questionBank';
 
@@ -67,7 +70,9 @@ beforeEach(async () => {
   await applyD1Migrations(testEnv.CONTENT_DB, testEnv.TEST_MIGRATIONS);
   await testEnv.CONTENT_DB.batch([
     testEnv.CONTENT_DB.prepare('DELETE FROM question_audit_logs'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM question_reports'),
     testEnv.CONTENT_DB.prepare('DELETE FROM question_bank_releases'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM published_question_versions'),
     testEnv.CONTENT_DB.prepare('DELETE FROM published_questions'),
     testEnv.CONTENT_DB.prepare('DELETE FROM questions'),
     testEnv.CONTENT_DB.prepare(
@@ -254,6 +259,156 @@ describe('question bank service edge cases', () => {
       stats: { total: 2, enabled: 1, disabled: 1 },
       data: [{ id: 'choice', choices: [{ label: 'A', content: '2' }], correctChoice: 'A' }],
     });
+  });
+
+  it('stores versioned reports, aggregates attention, and resolves them only after publish', async () => {
+    await insertQuestion('reported-question');
+    await setMeta(1, 0);
+    await publishQuestionBank(testEnv.CONTENT_DB, 1, NOW);
+
+    const first = await submitQuestionReport(
+      testEnv.CONTENT_DB,
+      {
+        questionId: 'reported-question',
+        publishedRevision: 1,
+        reason: 'The answer looks incorrect.',
+        source: 'exam',
+        sessionId: '00000000-0000-4000-8000-000000000001',
+      },
+      'report-1',
+      NOW,
+    );
+    const repeated = await submitQuestionReport(
+      testEnv.CONTENT_DB,
+      {
+        questionId: 'reported-question',
+        publishedRevision: 1,
+        reason: 'The wording and answer both look incorrect.',
+        source: 'exam',
+        sessionId: '00000000-0000-4000-8000-000000000001',
+      },
+      'report-2',
+      '2026-07-19T00:01:00.000Z',
+    );
+    expect(first).toEqual({ id: 'report-1', status: 'open' });
+    expect(repeated).toEqual({ id: 'report-1', status: 'open' });
+
+    const attention = await listAdminQuestions(testEnv.CONTENT_DB, {
+      page: 1,
+      pageSize: 10,
+      attention: 'reported',
+    });
+    expect(attention).toMatchObject({
+      total: 1,
+      stats: { reported: 1 },
+      data: [
+        {
+          id: 'reported-question',
+          reportSummary: {
+            openCount: 1,
+            latestReason: 'The wording and answer both look incorrect.',
+          },
+        },
+      ],
+    });
+    await expect(
+      listOpenQuestionReports(testEnv.CONTENT_DB, 'reported-question', 10),
+    ).resolves.toMatchObject([
+      {
+        id: 'report-1',
+        publishedRevision: 1,
+        questionSnapshot: { question: 'What is 1 + 1?' },
+      },
+    ]);
+
+    await updateQuestion(
+      testEnv.CONTENT_DB,
+      'reported-question',
+      { question: 'What is 1 plus 1? ____' },
+      '2026-07-19T00:02:00.000Z',
+    );
+    expect(
+      (await listOpenQuestionReports(testEnv.CONTENT_DB, 'reported-question', 10)).length,
+    ).toBe(1);
+    await publishQuestionBank(testEnv.CONTENT_DB, 2, '2026-07-19T00:03:00.000Z');
+    expect(
+      (await listOpenQuestionReports(testEnv.CONTENT_DB, 'reported-question', 10)).length,
+    ).toBe(0);
+    await expect(
+      testEnv.CONTENT_DB.prepare(
+        `SELECT revision, question FROM published_question_versions
+         WHERE id = ? ORDER BY revision`,
+      )
+        .bind('reported-question')
+        .all(),
+    ).resolves.toMatchObject({
+      results: [
+        { revision: 1, question: 'What is 1 + 1?' },
+        { revision: 2, question: 'What is 1 plus 1? ____' },
+      ],
+    });
+  });
+
+  it('dismisses false reports with an audit record and rejects invalid report input', async () => {
+    await insertQuestion('dismissed-question');
+    await setMeta(1, 0);
+    await publishQuestionBank(testEnv.CONTENT_DB, 1, NOW);
+
+    await expect(
+      submitQuestionReport(
+        testEnv.CONTENT_DB,
+        {
+          questionId: 'dismissed-question',
+          publishedRevision: 2,
+          reason: 'Invalid future version',
+          source: 'review',
+          sessionId: 'session-1',
+        },
+        'invalid-report',
+        NOW,
+      ),
+    ).rejects.toThrow('题库版本不合法');
+    await expect(
+      submitQuestionReport(
+        testEnv.CONTENT_DB,
+        {
+          questionId: 'dismissed-question',
+          publishedRevision: 1,
+          reason: '',
+          source: 'review',
+          sessionId: 'session-1',
+        },
+        'invalid-report',
+        NOW,
+      ),
+    ).rejects.toThrow('反馈原因长度不合法');
+
+    await submitQuestionReport(
+      testEnv.CONTENT_DB,
+      {
+        questionId: 'dismissed-question',
+        publishedRevision: 1,
+        reason: 'I misread the question.',
+        source: 'review',
+        sessionId: 'session-1',
+      },
+      'report-1',
+      NOW,
+    );
+    await expect(
+      dismissOpenQuestionReports(testEnv.CONTENT_DB, 'dismissed-question', '', NOW),
+    ).rejects.toThrow('处理说明长度不合法');
+    await expect(
+      dismissOpenQuestionReports(
+        testEnv.CONTENT_DB,
+        'dismissed-question',
+        'Confirmed as a misunderstanding.',
+        NOW,
+      ),
+    ).resolves.toBe(1);
+    await expect(listQuestionAudit(testEnv.CONTENT_DB, 1)).resolves.toMatchObject([
+      { action: 'dismiss_reports', questionId: 'dismissed-question' },
+    ]);
   });
 
   it('rejects missing rows and malformed stored JSON', async () => {

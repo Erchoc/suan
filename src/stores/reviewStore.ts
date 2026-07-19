@@ -9,7 +9,11 @@ const MAX_SESSIONS = 10;
 interface ReviewStore {
   sessions: Record<string, ReviewSession>;
 
-  createSession(sources: ReviewSource[], questions: Question[]): string;
+  createSession(
+    sources: ReviewSource[],
+    questions: Question[],
+    questionBankVersion?: number,
+  ): string;
   setAnswer(sessionId: string, questionId: string, answers: string[]): void;
   setChoiceAnswer(sessionId: string, questionId: string, label: string): void;
   /** Submits one question and returns its result. */
@@ -25,12 +29,13 @@ export const useReviewStore = create<ReviewStore>()(
     (set, get) => ({
       sessions: {},
 
-      createSession: (sources, questions) => {
+      createSession: (sources, questions, questionBankVersion) => {
         const sessionId = crypto.randomUUID();
         const session: ReviewSession = {
           sessionId,
           sources,
           questions,
+          questionBankVersion,
           answers: {},
           choiceAnswers: {},
           results: {},

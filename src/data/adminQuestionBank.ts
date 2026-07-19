@@ -10,11 +10,11 @@ export interface QuestionBankMeta {
 }
 
 export interface AdminQuestionList {
-  data: Question[];
+  data: AdminQuestion[];
   page: number;
   pageSize: number;
   total: number;
-  stats: { total: number; enabled: number; disabled: number };
+  stats: { total: number; enabled: number; disabled: number; reported: number };
   meta: QuestionBankMeta;
 }
 
@@ -27,6 +27,27 @@ export interface AdminQuestionFilters {
   difficulty?: Question['difficulty'];
   type?: QuestionType;
   status?: 'enabled' | 'disabled';
+  attention?: 'reported';
+}
+
+export interface AdminQuestion extends Question {
+  reportSummary?: {
+    openCount: number;
+    latestReason: string;
+    latestAt: string;
+  };
+}
+
+export interface QuestionReportEntry {
+  id: string;
+  questionId: string;
+  publishedRevision: number;
+  questionSnapshot: Question;
+  reason: string;
+  source: 'exam' | 'review';
+  status: 'open' | 'resolved' | 'dismissed';
+  createdAt: string;
+  resolvedAt: string | null;
 }
 
 export interface QuestionPatch {
@@ -165,6 +186,24 @@ export function publishAdminQuestionBank(expectedDraftRevision: number) {
 
 export function listQuestionAudit(limit = 30): Promise<{ data: QuestionAuditEntry[] }> {
   return adminFetch(`/api/admin/question-audit?limit=${limit}`);
+}
+
+export function listAdminQuestionReports(
+  questionId: string,
+): Promise<{ data: QuestionReportEntry[] }> {
+  return adminFetch(
+    `/api/admin/question-reports?questionId=${encodeURIComponent(questionId)}&limit=50`,
+  );
+}
+
+export function dismissAdminQuestionReports(
+  questionId: string,
+  note: string,
+): Promise<{ ok: true; dismissed: number }> {
+  return adminFetch('/api/admin/question-reports/dismiss', {
+    method: 'POST',
+    body: JSON.stringify({ questionId, note }),
+  });
 }
 
 export function exportAdminQuestions(): Promise<{ data: Question[]; meta: QuestionBankMeta }> {

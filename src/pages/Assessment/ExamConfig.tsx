@@ -225,7 +225,7 @@ export default function ExamConfig() {
       .slice(0, 8);
   }, [sessions]);
 
-  const { questions } = useQuestions();
+  const { questions, version: questionBankVersion } = useQuestions();
   const [copied, setCopied] = useState(false);
   const [generatedLink, setGeneratedLink] = useState('');
 
@@ -344,7 +344,7 @@ export default function ExamConfig() {
       config.questionCount,
       config.filterChineseInput,
     );
-    const sessionId = createSession(picked);
+    const sessionId = createSession(picked, questionBankVersion);
     setGeneratedLink(`${window.location.origin}/exam/${sessionId}`);
   };
 

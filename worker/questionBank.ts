@@ -64,6 +64,37 @@ export interface AdminQuestionFilters {
   difficulty?: QuestionDifficulty;
   type?: QuestionType;
   status?: 'enabled' | 'disabled';
+  attention?: 'reported';
+}
+
+export interface QuestionReportSummary {
+  openCount: number;
+  latestReason: string;
+  latestAt: string;
+}
+
+export interface AdminQuestionRecord extends QuestionRecord {
+  reportSummary?: QuestionReportSummary;
+}
+
+export interface QuestionReportInput {
+  questionId: string;
+  publishedRevision: number;
+  reason: string;
+  source: 'exam' | 'review';
+  sessionId: string;
+}
+
+export interface QuestionReportRecord {
+  id: string;
+  questionId: string;
+  publishedRevision: number;
+  questionSnapshot: QuestionRecord;
+  reason: string;
+  source: 'exam' | 'review';
+  status: 'open' | 'resolved' | 'dismissed';
+  createdAt: string;
+  resolvedAt: string | null;
 }
 
 export interface QuestionAuditEntry {
@@ -126,6 +157,25 @@ interface StatsRow {
   total: number;
   enabled: number;
   disabled: number;
+  reported: number;
+}
+
+interface AdminQuestionRow extends QuestionRow {
+  open_report_count: number;
+  latest_report_reason: string | null;
+  latest_report_at: string | null;
+}
+
+interface QuestionReportRow {
+  id: string;
+  question_id: string;
+  published_revision: number;
+  question_snapshot_json: string;
+  reason: string;
+  source: 'exam' | 'review';
+  status: 'open' | 'resolved' | 'dismissed';
+  created_at: string;
+  resolved_at: string | null;
 }
 
 interface AuditRow {
@@ -142,6 +192,9 @@ interface AuditRow {
 const QUESTION_COLUMNS = `id, kp_id, kp_name, grade, semester, difficulty, type, question,
   blanks_json, blank_types_json, choices_json, correct_choice, solution, common_mistake,
   hint, enable, check_message`;
+const ADMIN_QUESTION_COLUMNS = QUESTION_COLUMNS.split(',')
+  .map(column => `q.${column.trim()}`)
+  .join(', ');
 
 const DIFFICULTIES = new Set<QuestionDifficulty>(['easy', 'medium', 'hard']);
 const QUESTION_TYPES = new Set<QuestionType>(['fill_blank', 'choice', 'mixed']);
@@ -210,6 +263,35 @@ function rowToMeta(row: MetaRow): QuestionBankMeta {
     importedAt: row.imported_at,
     publishedAt: row.published_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function rowToAdminQuestion(row: AdminQuestionRow): AdminQuestionRecord {
+  const question = rowToQuestion(row);
+  if (!row.open_report_count || !row.latest_report_reason || !row.latest_report_at) {
+    return question;
+  }
+  return {
+    ...question,
+    reportSummary: {
+      openCount: row.open_report_count,
+      latestReason: row.latest_report_reason,
+      latestAt: row.latest_report_at,
+    },
+  };
+}
+
+function rowToQuestionReport(row: QuestionReportRow): QuestionReportRecord {
+  return {
+    id: row.id,
+    questionId: row.question_id,
+    publishedRevision: row.published_revision,
+    questionSnapshot: parseJson<QuestionRecord>(row.question_snapshot_json, {} as QuestionRecord),
+    reason: row.reason,
+    source: row.source,
+    status: row.status,
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at,
   };
 }
 
@@ -419,11 +501,133 @@ export async function getPublishedQuestion(
   return { question: rowToQuestion(row), meta };
 }
 
+export async function submitQuestionReport(
+  db: D1Database,
+  input: QuestionReportInput,
+  reportId: string,
+  now: string,
+): Promise<{ id: string; status: 'open' }> {
+  const reason = input.reason.trim();
+  if (!reason || reason.length > 500) {
+    throw new QuestionBankError('VALIDATION', '反馈原因长度不合法');
+  }
+  if (!input.sessionId || input.sessionId.length > 80) {
+    throw new QuestionBankError('VALIDATION', '会话 ID 不合法');
+  }
+  if (!Number.isInteger(input.publishedRevision) || input.publishedRevision <= 0) {
+    throw new QuestionBankError('VALIDATION', '题库版本不合法');
+  }
+
+  const meta = await getQuestionBankMeta(db);
+  if (input.publishedRevision > meta.publishedRevision) {
+    throw new QuestionBankError('VALIDATION', '题库版本不合法');
+  }
+
+  let snapshotRow = await db
+    .prepare(
+      `SELECT ${QUESTION_COLUMNS} FROM published_question_versions
+       WHERE revision = ? AND id = ? AND enable = 1`,
+    )
+    .bind(input.publishedRevision, input.questionId)
+    .first<QuestionRow>();
+  if (!snapshotRow && input.publishedRevision === meta.publishedRevision) {
+    snapshotRow = await db
+      .prepare(`SELECT ${QUESTION_COLUMNS} FROM published_questions WHERE id = ? AND enable = 1`)
+      .bind(input.questionId)
+      .first<QuestionRow>();
+  }
+  if (!snapshotRow) {
+    throw new QuestionBankError('NOT_FOUND', '题目版本不存在');
+  }
+
+  const dedupeKey = `${input.source}:${input.sessionId}:${input.questionId}:${input.publishedRevision}`;
+  await db
+    .prepare(
+      `INSERT INTO question_reports
+        (id, dedupe_key, question_id, published_revision, question_snapshot_json,
+         reason, source, session_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
+       ON CONFLICT(dedupe_key) DO UPDATE SET
+         question_snapshot_json = excluded.question_snapshot_json,
+         reason = excluded.reason,
+         status = 'open',
+         resolution_note = NULL,
+         created_at = excluded.created_at,
+         resolved_at = NULL`,
+    )
+    .bind(
+      reportId,
+      dedupeKey,
+      input.questionId,
+      input.publishedRevision,
+      JSON.stringify(rowToQuestion(snapshotRow)),
+      reason,
+      input.source,
+      input.sessionId,
+      now,
+    )
+    .run();
+  const stored = await db
+    .prepare(`SELECT id FROM question_reports WHERE dedupe_key = ?`)
+    .bind(dedupeKey)
+    .first<{ id: string }>();
+  if (!stored) throw new QuestionBankError('NOT_READY', '反馈保存失败');
+  return { id: stored.id, status: 'open' };
+}
+
+export async function listOpenQuestionReports(
+  db: D1Database,
+  questionId: string,
+  limit: number,
+): Promise<QuestionReportRecord[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, question_id, published_revision, question_snapshot_json, reason, source,
+        status, created_at, resolved_at FROM question_reports
+       WHERE question_id = ? AND status = 'open'
+       ORDER BY created_at DESC, id DESC LIMIT ?`,
+    )
+    .bind(questionId, limit)
+    .all<QuestionReportRow>();
+  return result.results.map(rowToQuestionReport);
+}
+
+export async function dismissOpenQuestionReports(
+  db: D1Database,
+  questionId: string,
+  note: string,
+  now: string,
+): Promise<number> {
+  const normalizedNote = note.trim();
+  if (!normalizedNote || normalizedNote.length > 500) {
+    throw new QuestionBankError('VALIDATION', '处理说明长度不合法');
+  }
+  const result = await db
+    .prepare(
+      `UPDATE question_reports SET status = 'dismissed', resolution_note = ?, resolved_at = ?
+       WHERE question_id = ? AND status = 'open'`,
+    )
+    .bind(normalizedNote, now, questionId)
+    .run();
+  if (result.meta.changes > 0) {
+    await db
+      .prepare(
+        `INSERT INTO question_audit_logs
+          (revision, question_id, action, before_json, after_json, actor, created_at)
+         SELECT draft_revision, ?, 'dismiss_reports', NULL, ?, 'admin', ?
+         FROM question_bank_meta WHERE singleton_id = 1`,
+      )
+      .bind(questionId, JSON.stringify({ count: result.meta.changes, note: normalizedNote }), now)
+      .run();
+  }
+  return result.meta.changes;
+}
+
 function buildAdminWhere(filters: AdminQuestionFilters): { sql: string; values: unknown[] } {
   const clauses: string[] = [];
   const values: unknown[] = [];
   if (filters.query) {
-    clauses.push('(id LIKE ? OR kp_id LIKE ? OR kp_name LIKE ? OR question LIKE ?)');
+    clauses.push('(q.id LIKE ? OR q.kp_id LIKE ? OR q.kp_name LIKE ? OR q.question LIKE ?)');
     const query = `%${filters.query}%`;
     values.push(query, query, query, query);
   }
@@ -434,12 +638,18 @@ function buildAdminWhere(filters: AdminQuestionFilters): { sql: string; values: 
     ['type', filters.type],
   ] as const) {
     if (!value) continue;
-    clauses.push(`${column} = ?`);
+    clauses.push(`q.${column} = ?`);
     values.push(value);
   }
   if (filters.status) {
-    clauses.push('enable = ?');
+    clauses.push('q.enable = ?');
     values.push(filters.status === 'enabled' ? 1 : 0);
+  }
+  if (filters.attention === 'reported') {
+    clauses.push(
+      `EXISTS (SELECT 1 FROM question_reports report
+        WHERE report.question_id = q.id AND report.status = 'open')`,
+    );
   }
   return { sql: clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '', values };
 }
@@ -450,27 +660,38 @@ export async function listAdminQuestions(db: D1Database, filters: AdminQuestionF
   const [questionsResult, filteredCount, stats, meta] = await Promise.all([
     db
       .prepare(
-        `SELECT ${QUESTION_COLUMNS} FROM questions${where.sql}
-         ORDER BY updated_at DESC, id ASC LIMIT ? OFFSET ?`,
+        `SELECT ${ADMIN_QUESTION_COLUMNS},
+          (SELECT COUNT(*) FROM question_reports report
+            WHERE report.question_id = q.id AND report.status = 'open') AS open_report_count,
+          (SELECT report.reason FROM question_reports report
+            WHERE report.question_id = q.id AND report.status = 'open'
+            ORDER BY report.created_at DESC, report.id DESC LIMIT 1) AS latest_report_reason,
+          (SELECT report.created_at FROM question_reports report
+            WHERE report.question_id = q.id AND report.status = 'open'
+            ORDER BY report.created_at DESC, report.id DESC LIMIT 1) AS latest_report_at
+         FROM questions q${where.sql}
+         ORDER BY q.updated_at DESC, q.id ASC LIMIT ? OFFSET ?`,
       )
       .bind(...where.values, filters.pageSize, offset)
-      .all<QuestionRow>(),
+      .all<AdminQuestionRow>(),
     db
-      .prepare(`SELECT COUNT(*) AS count FROM questions${where.sql}`)
+      .prepare(`SELECT COUNT(*) AS count FROM questions q${where.sql}`)
       .bind(...where.values)
       .first<CountRow>(),
     db
       .prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(enable), 0) AS enabled,
-        COUNT(*) - COALESCE(SUM(enable), 0) AS disabled FROM questions`)
+        COUNT(*) - COALESCE(SUM(enable), 0) AS disabled,
+        (SELECT COUNT(DISTINCT question_id) FROM question_reports WHERE status = 'open') AS reported
+        FROM questions`)
       .first<StatsRow>(),
     getQuestionBankMeta(db),
   ]);
   return {
-    data: questionsResult.results.map(rowToQuestion),
+    data: questionsResult.results.map(rowToAdminQuestion),
     page: filters.page,
     pageSize: filters.pageSize,
     total: filteredCount?.count ?? 0,
-    stats: stats ?? { total: 0, enabled: 0, disabled: 0 },
+    stats: stats ?? { total: 0, enabled: 0, disabled: 0, reported: 0 },
     meta,
   };
 }
@@ -587,7 +808,7 @@ export async function publishQuestionBank(
     getQuestionBankMeta(db),
     db
       .prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(enable), 0) AS enabled,
-        COUNT(*) - COALESCE(SUM(enable), 0) AS disabled FROM questions`)
+        COUNT(*) - COALESCE(SUM(enable), 0) AS disabled, 0 AS reported FROM questions`)
       .first<StatsRow>(),
   ]);
   if (meta.draftRevision !== expectedDraftRevision) {
@@ -599,6 +820,15 @@ export async function publishQuestionBank(
   if (!stats?.total) throw new QuestionBankError('NOT_READY', '题库尚未导入');
 
   await db.batch([
+    db
+      .prepare(
+        `INSERT OR REPLACE INTO published_question_versions
+          (revision, ${QUESTION_COLUMNS}, published_at)
+         SELECT ?, ${QUESTION_COLUMNS}, ? FROM questions
+         WHERE (SELECT draft_revision = ? AND draft_revision != published_revision
+                FROM question_bank_meta WHERE singleton_id = 1)`,
+      )
+      .bind(meta.draftRevision, now, expectedDraftRevision),
     db
       .prepare(
         `DELETE FROM published_questions
@@ -638,6 +868,22 @@ export async function publishQuestionBank(
         now,
         expectedDraftRevision,
       ),
+    db
+      .prepare(
+        `UPDATE question_reports SET status = 'resolved',
+          resolution_note = '题目修改已发布', resolved_at = ?
+         WHERE status = 'open'
+           AND (SELECT draft_revision = ? AND draft_revision != published_revision
+                FROM question_bank_meta WHERE singleton_id = 1)
+           AND EXISTS (
+             SELECT 1 FROM question_audit_logs audit
+             WHERE audit.question_id = question_reports.question_id
+               AND audit.revision > question_reports.published_revision
+               AND audit.revision <= ?
+               AND audit.action IN ('update', 'batch_enable', 'batch_disable')
+           )`,
+      )
+      .bind(now, expectedDraftRevision, expectedDraftRevision),
     db
       .prepare(
         `UPDATE question_bank_meta SET published_revision = draft_revision,

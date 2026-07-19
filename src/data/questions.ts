@@ -3,9 +3,11 @@ import type { Question } from '../types';
 let cachedQuestions: Question[] | null = null;
 let pendingQuestions: Promise<Question[]> | null = null;
 let questionsById = new Map<string, Question>();
+let loadedQuestionBankVersion: number | null = null;
 
 interface QuestionBankResponse {
   data: unknown;
+  version: unknown;
 }
 
 function isQuestion(value: unknown): value is Question {
@@ -18,14 +20,26 @@ export function getCachedQuestionById(questionId: string): Question | undefined 
   return questionsById.get(questionId);
 }
 
-async function fetchPublishedQuestions(): Promise<unknown> {
+export function getLoadedQuestionBankVersion(): number | undefined {
+  return loadedQuestionBankVersion ?? undefined;
+}
+
+function readPublishedRevision(value: unknown): number {
+  if (!Number.isInteger(value) || Number(value) <= 0) {
+    throw new Error('D1 question bank version is invalid');
+  }
+  return Number(value);
+}
+
+async function fetchPublishedQuestions(): Promise<{ data: unknown; version: number }> {
   const response = await fetch('/api/questions');
   if (!response.ok) throw new Error(`D1 question bank unavailable: ${response.status}`);
   const payload: unknown = await response.json();
   if (typeof payload !== 'object' || payload === null || !('data' in payload)) {
     throw new Error('D1 question bank response is invalid');
   }
-  return (payload as QuestionBankResponse).data;
+  const envelope = payload as QuestionBankResponse;
+  return { data: envelope.data, version: readPublishedRevision(envelope.version) };
 }
 
 export function loadQuestions(): Promise<Question[]> {
@@ -33,12 +47,16 @@ export function loadQuestions(): Promise<Question[]> {
   if (pendingQuestions) return pendingQuestions;
 
   pendingQuestions = fetchPublishedQuestions()
-    .then(data => {
+    .then(({ data, version }) => {
       if (!Array.isArray(data)) {
         throw new Error('题库格式错误');
       }
-      const questions = data.filter(isQuestion).filter(question => question.enable !== false);
+      const questions = data
+        .filter(isQuestion)
+        .filter(question => question.enable !== false)
+        .map(question => ({ ...question, publishedRevision: version }));
       cachedQuestions = questions;
+      loadedQuestionBankVersion = version;
       questionsById = new Map(questions.map(question => [question.id, question]));
       return questions;
     })
@@ -63,6 +81,11 @@ export async function loadQuestion(questionId: string): Promise<Question | undef
   }
   const question = (payload as QuestionBankResponse).data;
   if (!isQuestion(question) || question.enable === false) return undefined;
-  questionsById.set(question.id, question);
-  return question;
+  const publishedQuestion = {
+    ...question,
+    publishedRevision: readPublishedRevision((payload as QuestionBankResponse).version),
+  };
+  loadedQuestionBankVersion = publishedQuestion.publishedRevision;
+  questionsById.set(publishedQuestion.id, publishedQuestion);
+  return publishedQuestion;
 }

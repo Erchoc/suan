@@ -35,7 +35,7 @@ interface QuestionCardProps {
   totalQuestions: number;
   onAnswerChange: (blanksIndex: number, value: string) => void;
   onChoiceChange?: (label: string) => void;
-  onIssueReport?: (reason: string) => void;
+  onIssueReport?: (reason: string) => void | Promise<void>;
   onSkip: () => void;
   onBookmark: () => void;
   onNext: () => void;
@@ -204,6 +204,10 @@ export default function QuestionCard({
   const qType: QuestionType = question.type || 'fill_blank';
   const [showIssueInput, setShowIssueInput] = useState(false);
   const [issueText, setIssueText] = useState(issueReport ?? '');
+  const [issueStatus, setIssueStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>(
+    'idle',
+  );
+  const [issueError, setIssueError] = useState('');
   const [showHint, setShowHint] = useState(defaultShowHint);
 
   // Reset the issue panel when the question changes.
@@ -211,7 +215,9 @@ export default function QuestionCard({
   useEffect(() => {
     setShowIssueInput(!!issueReport);
     setIssueText(issueReport ?? '');
-  }, [question.id, issueReport]);
+    setIssueStatus('idle');
+    setIssueError('');
+  }, [question.id]);
 
   // Reset the expanded hint state when the question changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: The question ID intentionally resets state when object data is reused.
@@ -250,6 +256,20 @@ export default function QuestionCard({
 
   const filledCount = answers.filter(a => a?.trim()).length;
   const hasIssue = !!issueReport;
+
+  const handleIssueSubmit = async () => {
+    const reason = issueText.trim();
+    if (!reason || !onIssueReport) return;
+    setIssueStatus('submitting');
+    setIssueError('');
+    try {
+      await onIssueReport(reason);
+      setIssueStatus('success');
+    } catch (cause) {
+      setIssueStatus('error');
+      setIssueError(cause instanceof Error ? cause.message : '反馈提交失败，请稍后重试');
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -366,17 +386,35 @@ export default function QuestionCard({
               <p className="text-xs text-red-400 mb-2">我认为这个题目不太正常，原因是：</p>
               <textarea
                 value={issueText}
-                onChange={e => setIssueText(e.target.value)}
-                onBlur={() => onIssueReport?.(issueText)}
+                onChange={e => {
+                  setIssueText(e.target.value);
+                  if (issueStatus !== 'submitting') setIssueStatus('idle');
+                  setIssueError('');
+                }}
                 placeholder="例如：答案有误 / 题目表述不清 / 超出知识范围..."
+                maxLength={500}
                 className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim/50 focus:outline-none focus:border-red-500/50 resize-none"
                 rows={2}
               />
-              {issueText.trim() && (
-                <p className="text-xs text-green mt-2 leading-relaxed">
-                  已记录，请先按您的理解继续答题。如后台核实为异常题目，我们将为您的账户提供更多福利额度。
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="min-h-4 text-xs leading-relaxed">
+                  {issueStatus === 'success' && (
+                    <span className="text-green">已送达题库管理员，感谢你的提醒。</span>
+                  )}
+                  {issueStatus === 'error' && <span className="text-red-500">{issueError}</span>}
+                  {issueStatus === 'idle' && issueReport && (
+                    <span className="text-text-dim">已保存过反馈，修改后可以再次提交。</span>
+                  )}
                 </p>
-              )}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!issueText.trim() || issueStatus === 'submitting'}
+                  onClick={() => void handleIssueSubmit()}
+                >
+                  {issueStatus === 'submitting' ? '提交中…' : issueReport ? '更新反馈' : '提交反馈'}
+                </Button>
+              </div>
             </div>
           </motion.div>
         )}

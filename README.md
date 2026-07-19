@@ -65,7 +65,7 @@
     └── Hono Cloudflare Worker
         ├── /api/health
         ├── /api/questions 与 /api/admin/*
-        │   └── Cloudflare D1（草稿、发布快照、版本、审计）
+        │   └── Cloudflare D1（编辑源、发布快照、历史版本、用户反馈、审计）
         └── /api/ai/chat → 可配置 AI 上游
 ```
 
@@ -161,14 +161,16 @@ curl http://localhost:5173/api/health
 
 - `GET /api/questions`：读取 D1 当前已发布且启用的题目，返回版本号与 ETag。
 - `GET /api/questions/:id`：读取单道已发布题目。
+- `POST /api/questions/:id/report`：提交题目问题，绑定会话、发布版本和学生当时看到的题面。
 - `POST|GET|DELETE /api/admin/session`：登录、检查和退出管理员会话。
-- `GET /api/admin/questions`：分页搜索并按年级、学期、难度、题型和状态筛选草稿题库。
+- `GET /api/admin/questions`：分页搜索题库，并按年级、学期、难度、题型、启停状态或待处理反馈筛选。
 - `PATCH /api/admin/questions/:id`：编辑题目内容、答案、元数据与质量状态。
 - `POST /api/admin/questions/batch-status`：批量启用或禁用，禁用时必须填写质量原因。
 - `POST /api/admin/questions/publish`：按草稿修订号发布不可见变更，避免并发覆盖。
 - `GET /api/admin/questions/export`、`GET /api/admin/question-audit`：导出当前草稿与查看审计记录。
+- `GET /api/admin/question-reports`、`POST /api/admin/question-reports/dismiss`：查看学生当时的题面或忽略无效反馈。
 
-后台编辑先写入 D1 `questions`，不会立即影响学生。只有显式发布后才会刷新 `published_questions` 快照；学生端始终读取 D1 已发布版本。
+后台编辑先写入 D1 `questions`，不会立即影响学生。只有显式发布后才会刷新 `published_questions`，并把完整题面写入历史版本；学生端始终读取已发布版本。考试与复习会话在创建时保存完整 `Question[]` 和题库版本，因此后续修题只影响新建作答，既有试卷、判题和做题记录继续使用原题面。
 
 ## 安全边界
 

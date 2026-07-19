@@ -145,13 +145,14 @@ describe('examStore sessions', () => {
     let now = 1_000;
     vi.spyOn(Date, 'now').mockImplementation(() => now);
     const question = createQuestion();
-    const sessionId = useExamStore.getState().createSession([question]);
+    const sessionId = useExamStore.getState().createSession([question], 3);
 
     const created = useExamStore.getState().getSession(sessionId);
     expect(created?.config.selectedUnitIds).toEqual(new Set(['unit-1']));
     expect(created?.config.selectedUnitIds).not.toBe(
       useExamStore.getState().config.selectedUnitIds,
     );
+    expect(created?.questionBankVersion).toBe(3);
     expect(useExamStore.getState().activeSessionId).toBe(sessionId);
 
     useExamStore.getState().startSession(sessionId);

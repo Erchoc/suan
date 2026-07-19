@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import CustomKeyboard from '../../components/CustomKeyboard/CustomKeyboard';
 import QuestionCard from '../../components/QuestionCard/QuestionCard';
 import Button from '../../components/ui/Button';
+import { submitQuestionReport } from '../../data/questionReports';
 import { useExamStore } from '../../stores/examStore';
 import type { DifficultyLevel, QuestionType } from '../../types';
 
@@ -288,7 +289,16 @@ export default function ExamPage() {
     setChoiceAnswer(sessionId!, currentQ.id, label);
   };
 
-  const handleIssueReport = (reason: string) => {
+  const handleIssueReport = async (reason: string) => {
+    const publishedRevision = currentQ.publishedRevision ?? session.questionBankVersion;
+    if (!publishedRevision) throw new Error('这份旧试卷缺少题库版本，请重新生成后反馈');
+    await submitQuestionReport({
+      questionId: currentQ.id,
+      publishedRevision,
+      reason,
+      source: 'exam',
+      sessionId: sessionId!,
+    });
     setIssueReport(sessionId!, currentQ.id, reason);
   };
 

@@ -416,7 +416,7 @@ export default function ReviewEntry() {
   const [searchParams] = useSearchParams();
   const { sessions: examSessions } = useExamStore();
   const { sessions: reviewSessions, createSession } = useReviewStore();
-  const { questions: allQuestions, loading } = useQuestions();
+  const { questions: allQuestions, loading, version: questionBankVersion } = useQuestions();
 
   const preKp = searchParams.get('kp');
   const preSession = searchParams.get('session');
@@ -491,7 +491,7 @@ export default function ReviewEntry() {
       sources.push({ type: 'report', sessionIds: includeAllWrong ? [] : wrongSessionIds });
     if (includeBookmarks) sources.push({ type: 'bookmarks' });
     if (selectedKpIds.size > 0) sources.push({ type: 'kps', kpIds: [...selectedKpIds] });
-    navigate(`/review/${createSession(sources, totalQuestions)}`);
+    navigate(`/review/${createSession(sources, totalQuestions, questionBankVersion)}`);
   };
 
   if (loading) {

@@ -1,6 +1,6 @@
 # 题库资产与管理后台
 
-> 文档版本：v2.0 · 2026-07-19
+> 文档版本：v2.1 · 2026-07-19
 > 状态：已实现；生产环境需单独执行 D1 迁移、初始化并配置 `ADMIN_SESSION_SECRET` 后启用。
 
 ## 一、定位
@@ -14,6 +14,7 @@
 - 单题及批量启用/禁用，禁用时强制记录质量原因。
 - 草稿修订与学生端发布版本分离。
 - 当前草稿 JSON 导出与最近审计记录。
+- 用户题目反馈聚合、历史题面核对、停用、修复和忽略闭环。
 - 桌面表格和移动卡片两种管理布局。
 
 ## 二、数据边界
@@ -25,6 +26,8 @@ data/questions.seed.json
 Cloudflare D1
 ├── questions                 当前可编辑草稿
 ├── published_questions       学生端只读发布快照
+├── published_question_versions 按发布版本保留完整题面
+├── question_reports          用户反馈、题面快照与处理状态
 ├── question_bank_meta        草稿/发布修订和来源哈希
 ├── question_bank_releases    发布记录
 └── question_audit_logs       编辑、批量、发布审计
@@ -38,6 +41,10 @@ Cloudflare D1
 2. 并发编辑后使用旧修订发布会返回 `409 CONFLICT`。
 3. 学生端只读取已发布快照，D1 未迁移或未导入时返回明确错误。
 4. 初始化脚本使用 `INSERT OR IGNORE`，重复运行不会覆盖后台维护结果。
+5. 考试与复习会话保存完整题面和发布版本；修题发布后只影响后续新建作答。
+6. 反馈只有在对应题目确实编辑或启停并发布后才自动归档，保存草稿不等于完成处理。
+
+Console 顶部的“全部题目、正常使用、已停用、待处理反馈”都是可点击筛选入口。年级、学期、难度和题型保留为必要条件，空值统一显示“全部”，不再提供重复的状态下拉。内部修订号只用于接口并发控制和审计，不作为运营者的主指标；主界面只显示“学生题库已同步”或“有修改待发布”。
 
 ## 三、鉴权与安全
 
@@ -59,6 +66,7 @@ URL 参数、隐藏导航或直接访问路由都不作为权限判断。
 | --- | --- | --- |
 | `GET` | `/api/questions` | 返回已发布且启用的题目、版本号与 ETag |
 | `GET` | `/api/questions/:id` | 返回单道已发布题目 |
+| `POST` | `/api/questions/:id/report` | 提交绑定发布版本的题目反馈 |
 | `POST` | `/api/admin/session` | 管理员登录 |
 | `GET` | `/api/admin/session` | 检查当前会话 |
 | `DELETE` | `/api/admin/session` | 清除当前会话 |
@@ -68,6 +76,8 @@ URL 参数、隐藏导航或直接访问路由都不作为权限判断。
 | `POST` | `/api/admin/questions/publish` | 按期望草稿修订发布 |
 | `GET` | `/api/admin/questions/export` | 导出当前草稿 JSON |
 | `GET` | `/api/admin/question-audit` | 读取最近审计记录 |
+| `GET` | `/api/admin/question-reports` | 读取单题待处理反馈与历史题面 |
+| `POST` | `/api/admin/question-reports/dismiss` | 忽略无效反馈并写入审计 |
 
 接口错误保持统一结构：
 
@@ -115,6 +125,6 @@ pnpm exec wrangler secret bulk .env --env production
 
 - 删除题目；先通过禁用保留审计与历史引用。
 - 多管理员、角色权限和组织级内容隔离。
-- 历史发布快照完整回滚；当前记录每次发布元数据，但只保留一份学生端快照。
+- 历史发布版本的一键回滚；当前已保留完整版本题面，但尚未提供回滚操作。
 - 题库图片资产；未来图片应放 R2，D1 仅保存引用和元数据。
 - 考试、复习与预习 Session 云端持久化；这些状态目前仍在浏览器本地。

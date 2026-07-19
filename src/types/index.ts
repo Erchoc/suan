@@ -77,6 +77,7 @@ export interface Question {
   hint: string;
   enable?: boolean; // false excludes a question that validation marked invalid.
   checkMessage?: string; // Validation reason produced by the check or validate script.
+  publishedRevision?: number; // Published bank revision attached by the client data layer.
 }
 
 export type DifficultyLevel = 'basic' | 'random' | 'challenge';
@@ -96,6 +97,7 @@ export interface ExamSession {
   sessionId: string;
   config: ExamConfig;
   questions: Question[];
+  questionBankVersion?: number; // Revision used to create this immutable question snapshot.
   answers: Record<string, string[]>;
   choiceAnswers: Record<string, string>; // Question ID to selected choice label.
   issueReports: Record<string, string>; // Question ID to issue description.
@@ -140,6 +142,7 @@ export interface ReviewSession {
   sessionId: string;
   sources: ReviewSource[];
   questions: Question[];
+  questionBankVersion?: number; // Current bank revision when the review snapshot was created.
   answers: Record<string, string[]>;
   choiceAnswers: Record<string, string>;
   /** Submitted results keyed by question ID. */

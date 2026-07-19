@@ -67,7 +67,7 @@ describe('reviewStore', () => {
     const question = createQuestion();
     const sessionId = useReviewStore
       .getState()
-      .createSession([{ type: 'kps', kpIds: ['kp-1'] }], [question]);
+      .createSession([{ type: 'kps', kpIds: ['kp-1'] }], [question], 4);
 
     useReviewStore.getState().setAnswer(sessionId, question.id, [' 2 ']);
     useReviewStore.getState().setChoiceAnswer(sessionId, question.id, 'A');
@@ -80,6 +80,7 @@ describe('reviewStore', () => {
 
     expect(useReviewStore.getState().getSession(sessionId)).toMatchObject({
       sessionId,
+      questionBankVersion: 4,
       answers: { [question.id]: [' 2 '] },
       choiceAnswers: { [question.id]: 'A' },
       results: { [question.id]: 'correct' },

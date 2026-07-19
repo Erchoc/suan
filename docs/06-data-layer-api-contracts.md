@@ -39,6 +39,7 @@ interface Question {
   hint: string;
   enable?: boolean; // false = 已禁用（后台操作）
   checkMessage?: string; // 质量问题或禁用原因
+  publishedRevision?: number; // 前端加载时附加的发布版本
 }
 ```
 
@@ -49,6 +50,7 @@ interface ExamSession {
   sessionId: string;
   config: ExamConfig;
   questions: Question[];
+  questionBankVersion?: number; // 创建这份题面快照时的题库版本
   answers: Record<string, string[]>; // questionId → 用户填写答案
   choiceAnswers: Record<string, string>; // questionId → 选择 label
   bookmarks: string[]; // 收藏的 questionId 列表
@@ -65,6 +67,7 @@ interface ReviewSession {
   sessionId: string;
   sources: ReviewSource[]; // 题目来源配置
   questions: Question[];
+  questionBankVersion?: number;
   answers: Record<string, string[]>;
   choiceAnswers: Record<string, string>;
   results: Record<string, "correct" | "wrong">; // 即时判题结果
@@ -94,12 +97,15 @@ interface ReviewSource {
 | --- | --- | --- | --- |
 | 获取已发布题库 | GET | `/api/questions` | 返回全部已发布且启用题目 |
 | 获取单题 | GET | `/api/questions/:id` | 只返回已发布且启用题目 |
+| 提交题目反馈 | POST | `/api/questions/:id/report` | 绑定会话、发布版本和历史题面 |
 | 管理列表 | GET | `/api/admin/questions` | 分页搜索、筛选草稿题库 |
 | 编辑题目 | PATCH | `/api/admin/questions/:id` | 编辑内容、答案、元数据与状态 |
 | 批量状态 | POST | `/api/admin/questions/batch-status` | 单次最多 100 道 |
 | 发布 | POST | `/api/admin/questions/publish` | 按期望修订发布 |
 | 导出 | GET | `/api/admin/questions/export` | 导出当前草稿 JSON |
 | 审计 | GET | `/api/admin/question-audit` | 最近操作记录 |
+| 查询反馈 | GET | `/api/admin/question-reports` | 单题待处理反馈与历史题面 |
+| 忽略反馈 | POST | `/api/admin/question-reports/dismiss` | 忽略无效反馈并记录原因 |
 
 **GET /api/questions 响应：**
 
@@ -114,6 +120,8 @@ interface ReviewSource {
 ```
 
 管理接口使用 HttpOnly 会话 Cookie；不接受 URL 参数、`X-Admin-Token` 或浏览器 `localStorage` 中的 Bearer Token。写接口同时校验同源。
+
+考试与复习 Session 直接持久化完整 `questions` 数组，判题和历史查看不会根据题目 ID 回读最新题库。反馈请求优先使用每道题附带的 `publishedRevision`，Worker 再从 `published_question_versions` 读取服务端历史题面，不能由浏览器伪造管理员看到的题目快照。
 
 ---
 

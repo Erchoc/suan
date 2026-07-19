@@ -11,10 +11,12 @@ import {
 } from './adminAuth';
 import {
   batchSetQuestionStatus,
+  dismissOpenQuestionReports,
   exportDraftQuestions,
   getPublishedQuestion,
   isMissingQuestionBankSchema,
   listAdminQuestions,
+  listOpenQuestionReports,
   listPublishedQuestions,
   listQuestionAudit,
   parseQuestionPatch,
@@ -22,6 +24,7 @@ import {
   QuestionBankError,
   type QuestionDifficulty,
   type QuestionType,
+  submitQuestionReport,
   updateQuestion,
 } from './questionBank';
 
@@ -31,6 +34,7 @@ const MAX_MESSAGE_CHARS = 2_000;
 const MAX_TOTAL_MESSAGE_CHARS = 20_000;
 const CLIENT_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const QUESTION_REPORT_SOURCES = new Set(['exam', 'review']);
 
 type ApiStatus = 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 500 | 502 | 503;
 
@@ -635,6 +639,49 @@ export function createApp(overrides: Partial<AppDependencies> = {}) {
     return c.json({ data: result.question, version: result.meta.publishedRevision, source: 'd1' });
   });
 
+  app.post('/api/questions/:id/report', async c => {
+    assertSameOrigin(c);
+    assertJsonRequest(c);
+    const rateLimit = await c.env.REPORT_RATE_LIMITER.limit({
+      key: getRateLimitKey(c, 'question-report'),
+    });
+    if (!rateLimit.success) {
+      c.header('retry-after', '60');
+      throw new ApiError(429, 'RATE_LIMITED', '反馈提交过于频繁，请稍后再试');
+    }
+    const questionId = c.req.param('id');
+    if (!questionId || questionId.length > 80) {
+      throw new ApiError(400, 'BAD_REQUEST', '题目 ID 不合法');
+    }
+    const body = await readJsonWithLimit(c.req.raw);
+    if (!isRecord(body)) throw new ApiError(400, 'BAD_REQUEST', '请求体必须是对象');
+    const reason = readBoundedString(body, 'reason', 500);
+    const source = readBoundedString(body, 'source', 20);
+    const sessionId = readBoundedString(body, 'sessionId', 80);
+    if (!QUESTION_REPORT_SOURCES.has(source)) {
+      throw new ApiError(400, 'BAD_REQUEST', 'source 不合法');
+    }
+    if (!CLIENT_ID_PATTERN.test(sessionId)) {
+      throw new ApiError(400, 'BAD_REQUEST', 'sessionId 不合法');
+    }
+    if (!Number.isInteger(body.publishedRevision) || Number(body.publishedRevision) <= 0) {
+      throw new ApiError(400, 'BAD_REQUEST', 'publishedRevision 不合法');
+    }
+    const report = await submitQuestionReport(
+      c.env.CONTENT_DB,
+      {
+        questionId,
+        publishedRevision: Number(body.publishedRevision),
+        reason,
+        source: source as 'exam' | 'review',
+        sessionId,
+      },
+      dependencies.randomUUID(),
+      formatSqlTimestamp(dependencies.now()),
+    );
+    return c.json({ data: report }, 201);
+  });
+
   app.post('/api/admin/session', async c => {
     assertSameOrigin(c);
     assertJsonRequest(c);
@@ -682,6 +729,10 @@ export function createApp(overrides: Partial<AppDependencies> = {}) {
     if (semester && semester.length > 20) {
       throw new ApiError(400, 'BAD_REQUEST', 'semester 过长');
     }
+    const attention = c.req.query('attention');
+    if (attention && attention !== 'reported') {
+      throw new ApiError(400, 'BAD_REQUEST', 'attention 不合法');
+    }
     return c.json(
       await listAdminQuestions(c.env.CONTENT_DB, {
         page: readPositiveInteger(c.req.query('page'), 1, 100_000, 'page'),
@@ -692,8 +743,36 @@ export function createApp(overrides: Partial<AppDependencies> = {}) {
         difficulty: readQuestionDifficulty(c.req.query('difficulty')),
         type: readQuestionType(c.req.query('type')),
         status: readQuestionStatus(c.req.query('status')),
+        attention: attention === 'reported' ? 'reported' : undefined,
       }),
     );
+  });
+
+  app.get('/api/admin/question-reports', async c => {
+    await assertAdminAuthenticated(c, dependencies.now());
+    const questionId = c.req.query('questionId')?.trim();
+    if (!questionId || questionId.length > 80) {
+      throw new ApiError(400, 'BAD_REQUEST', 'questionId 不合法');
+    }
+    const limit = readPositiveInteger(c.req.query('limit'), 20, 100, 'limit');
+    return c.json({ data: await listOpenQuestionReports(c.env.CONTENT_DB, questionId, limit) });
+  });
+
+  app.post('/api/admin/question-reports/dismiss', async c => {
+    assertSameOrigin(c);
+    await assertAdminAuthenticated(c, dependencies.now());
+    assertJsonRequest(c);
+    const body = await readJsonWithLimit(c.req.raw);
+    if (!isRecord(body)) throw new ApiError(400, 'BAD_REQUEST', '请求体必须是对象');
+    const questionId = readBoundedString(body, 'questionId', 80);
+    const note = readBoundedString(body, 'note', 500);
+    const dismissed = await dismissOpenQuestionReports(
+      c.env.CONTENT_DB,
+      questionId,
+      note,
+      formatSqlTimestamp(dependencies.now()),
+    );
+    return c.json({ ok: true, dismissed });
   });
 
   app.patch('/api/admin/questions/:id', async c => {

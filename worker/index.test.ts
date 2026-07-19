@@ -21,6 +21,7 @@ function createEnv(overrides: Partial<CloudflareBindings> = {}): CloudflareBindi
     CONTENT_DB: testEnv.CONTENT_DB,
     AI_RATE_LIMITER: allowRateLimiter,
     ADMIN_RATE_LIMITER: allowRateLimiter,
+    REPORT_RATE_LIMITER: allowRateLimiter,
     ...overrides,
   };
 }
@@ -83,6 +84,15 @@ async function seedQuestionBank(id = '1-1-01'): Promise<void> {
            'Skipping one addend.', 'Count one more.', 1, NULL, 1, ?)`,
     ).bind(id, now),
     testEnv.CONTENT_DB.prepare(
+      `INSERT INTO published_question_versions
+          (revision, id, kp_id, kp_name, grade, semester, difficulty, type, question,
+           blanks_json, blank_types_json, choices_json, correct_choice, solution,
+           common_mistake, hint, enable, check_message, published_at)
+         VALUES (1, ?, '1-1', 'Counting', 'Grade 1', 'First semester', 'easy', 'fill_blank',
+           'What is 1 + 1? ____', '["2"]', '["number"]', NULL, NULL, 'Add the numbers.',
+           'Skipping one addend.', 'Count one more.', 1, NULL, ?)`,
+    ).bind(id, now),
+    testEnv.CONTENT_DB.prepare(
       `UPDATE question_bank_meta SET draft_revision = 1, published_revision = 1,
           source_sha256 = 'test-source', imported_at = ?, published_at = ?, updated_at = ?
          WHERE singleton_id = 1`,
@@ -114,7 +124,9 @@ beforeEach(async () => {
   await applyD1Migrations(testEnv.CONTENT_DB, testEnv.TEST_MIGRATIONS);
   await testEnv.CONTENT_DB.batch([
     testEnv.CONTENT_DB.prepare('DELETE FROM question_audit_logs'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM question_reports'),
     testEnv.CONTENT_DB.prepare('DELETE FROM question_bank_releases'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM published_question_versions'),
     testEnv.CONTENT_DB.prepare('DELETE FROM published_questions'),
     testEnv.CONTENT_DB.prepare('DELETE FROM questions'),
     testEnv.CONTENT_DB.prepare(
@@ -198,6 +210,104 @@ describe('Suan Hono Worker', () => {
     const single = await app.request('/api/questions/1-1-01', {}, createEnv());
     expect(single.status).toBe(200);
     await expect(single.json()).resolves.toMatchObject({ data: { id: '1-1-01' }, version: 1 });
+  });
+
+  it('accepts versioned question reports and exposes the admin handling flow', async () => {
+    await seedQuestionBank();
+    const app = createApp({ now: () => NOW, randomUUID: () => CLIENT_ID });
+    const bindings = createEnv();
+    const report = await app.request(
+      '/api/questions/1-1-01/report',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-suan-client-id': CLIENT_ID },
+        body: JSON.stringify({
+          reason: '答案看起来不正确',
+          source: 'exam',
+          sessionId: CLIENT_ID,
+          publishedRevision: 1,
+        }),
+      },
+      bindings,
+    );
+    expect(report.status).toBe(201);
+    await expect(report.json()).resolves.toEqual({
+      data: { id: CLIENT_ID, status: 'open' },
+    });
+
+    const cookie = await loginAdmin(app, bindings);
+    const list = await app.request(
+      '/api/admin/questions?page=1&pageSize=20&attention=reported',
+      { headers: { cookie } },
+      bindings,
+    );
+    await expect(list.json()).resolves.toMatchObject({
+      total: 1,
+      stats: { reported: 1 },
+      data: [{ id: '1-1-01', reportSummary: { openCount: 1 } }],
+    });
+
+    const reports = await app.request(
+      '/api/admin/question-reports?questionId=1-1-01',
+      { headers: { cookie } },
+      bindings,
+    );
+    await expect(reports.json()).resolves.toMatchObject({
+      data: [{ reason: '答案看起来不正确', questionSnapshot: { id: '1-1-01' } }],
+    });
+
+    const dismissed = await app.request(
+      '/api/admin/question-reports/dismiss',
+      {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ questionId: '1-1-01', note: '核实后题目无误' }),
+      },
+      bindings,
+    );
+    await expect(dismissed.json()).resolves.toEqual({ ok: true, dismissed: 1 });
+  });
+
+  it('validates report origin, rate limit, and request fields', async () => {
+    await seedQuestionBank();
+    const app = createApp({ now: () => NOW, randomUUID: () => CLIENT_ID });
+    const crossOrigin = await app.request(
+      'https://suan.longye.site/api/questions/1-1-01/report',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+        body: JSON.stringify({}),
+      },
+      createEnv(),
+    );
+    expect(crossOrigin.status).toBe(403);
+
+    const limited = await app.request(
+      '/api/questions/1-1-01/report',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-suan-client-id': CLIENT_ID },
+        body: JSON.stringify({}),
+      },
+      createEnv({ REPORT_RATE_LIMITER: { limit: async () => ({ success: false }) } }),
+    );
+    expect(limited.status).toBe(429);
+
+    const invalid = await app.request(
+      '/api/questions/1-1-01/report',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-suan-client-id': CLIENT_ID },
+        body: JSON.stringify({
+          reason: '错误',
+          source: 'preview',
+          sessionId: 'not-a-session',
+          publishedRevision: 1,
+        }),
+      },
+      createEnv(),
+    );
+    expect(invalid.status).toBe(400);
   });
 
   it('creates, verifies, and clears a protected admin session', async () => {

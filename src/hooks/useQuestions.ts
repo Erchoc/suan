@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { loadQuestions } from '../data/questions';
+import { getLoadedQuestionBankVersion, loadQuestions } from '../data/questions';
 import type { Question } from '../types';
 
 export function useQuestions() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState<number | undefined>();
 
   useEffect(() => {
     let active = true;
@@ -13,6 +14,7 @@ export function useQuestions() {
       .then(data => {
         if (!active) return;
         setQuestions(data);
+        setVersion(getLoadedQuestionBankVersion());
         setError(null);
       })
       .catch(cause => {
@@ -27,5 +29,5 @@ export function useQuestions() {
     };
   }, []);
 
-  return { questions, loading, error };
+  return { questions, loading, error, version };
 }
