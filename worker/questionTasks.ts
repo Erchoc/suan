@@ -732,6 +732,8 @@ export function buildQualityPrompt(questions: QuestionRecord[]): string {
 
 检查答案与解析是否正确、题意是否清晰且答案唯一、题型字段是否匹配、是否依赖缺失图片、难度和知识点是否适合标注年级。发现任一问题即判为 error。
 
+填空题的 blanks 只表示学生需要在 ____ 内输入的内容。若题干已在空格前后提供必要的单位或符号（例如“____%”对应 blanks 为“16.7”），答案无需重复该单位或符号，不能因此判错；若题干没有提供，则按题意判断答案是否需要包含单位或符号。
+
 输入：
 ${JSON.stringify(payload)}
 

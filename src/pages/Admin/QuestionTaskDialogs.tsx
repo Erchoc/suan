@@ -33,14 +33,14 @@ const SEMESTER_OPTIONS = [
 ] satisfies SelectOption[];
 const TYPE_MODE_OPTIONS = [
   { value: 'auto', label: '智能混合题型' },
-  { value: 'fill_blank', label: '仅填空题' },
   { value: 'choice', label: '仅选择题' },
+  { value: 'fill_blank', label: '仅填空题' },
   { value: 'mixed', label: '仅综合题' },
 ] satisfies SelectOption[];
 const OPTIONAL_TYPE_OPTIONS = [
   { value: '', label: '全部题型' },
-  { value: 'fill_blank', label: '填空题' },
   { value: 'choice', label: '选择题' },
+  { value: 'fill_blank', label: '填空题' },
   { value: 'mixed', label: '综合题' },
 ] satisfies SelectOption[];
 const COUNT_OPTIONS = [

@@ -9,6 +9,7 @@ import {
   Flag,
   KeyRound,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -16,7 +17,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Dialog from '../../components/ui/Dialog';
@@ -46,6 +46,7 @@ import {
 } from '../../data/adminQuestionBank';
 import QuestionEditor from './QuestionEditor';
 import QuestionPreviewDialog from './QuestionPreviewDialog';
+import QuestionStatusBadge from './QuestionStatusBadge';
 import { TaskLauncherDialog, TaskProgressCard, TaskProgressDialog } from './QuestionTaskDialogs';
 
 const DEFAULT_FILTERS: AdminQuestionFilters = { page: 1, pageSize: 30 };
@@ -69,12 +70,12 @@ const DIFFICULTY_OPTIONS = [
 ] satisfies SelectOption[];
 const TYPE_OPTIONS = [
   { value: '', label: '全部' },
-  { value: 'fill_blank', label: '填空' },
   { value: 'choice', label: '选择' },
+  { value: 'fill_blank', label: '填空' },
   { value: 'mixed', label: '综合' },
 ] satisfies SelectOption[];
 type PendingAction =
-  | { type: 'batch'; enable: boolean; ids: string[] }
+  | { type: 'batch'; enable: boolean; ids: string[]; single?: boolean }
   | { type: 'dismiss'; questionId: string };
 const TYPE_LABELS = { fill_blank: '填空题', choice: '选择题', mixed: '综合题' };
 const DIFFICULTY_LABELS = { easy: '简单', medium: '中等', hard: '困难' };
@@ -327,7 +328,7 @@ export default function AdminQuestionBankPage() {
   const requestQuestionStatus = (question: AdminQuestion, enable: boolean) => {
     setActionReason(enable ? '' : (question.reportSummary?.latestReason ?? ''));
     setActionError(null);
-    setPendingAction({ type: 'batch', enable, ids: [question.id] });
+    setPendingAction({ type: 'batch', enable, ids: [question.id], single: true });
   };
 
   const openQuestionReports = async (question: AdminQuestion) => {
@@ -404,6 +405,8 @@ export default function AdminQuestionBankPage() {
 
   const allCurrentSelected =
     !!result?.data.length && result.data.every(question => selected.has(question.id));
+  const isSingleRestore =
+    pendingAction?.type === 'batch' && pendingAction.enable && pendingAction.single === true;
 
   return (
     <main className="min-h-screen bg-bg px-3 pb-8 pt-16 sm:px-6 sm:pb-24 sm:pt-20">
@@ -416,7 +419,7 @@ export default function AdminQuestionBankPage() {
             </div>
             <h1 className="mt-2 font-serif text-3xl font-semibold text-text">题库资产后台</h1>
             <p className="mt-2 max-w-2xl text-sm text-text-dim">
-              手工修改与 AI 质检会自动同步给后续新建的作答，历史试卷继续保留原题面。
+              题目修改与启停只影响后续新作答，历史试卷继续保留原题面。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -591,7 +594,7 @@ export default function AdminQuestionBankPage() {
           >
             <XCircle size={14} /> 批量禁用
           </Button>
-          <span className="ml-auto text-xs text-text-dim">修改后自动同步至学生题库</span>
+          <span className="ml-auto text-xs text-text-dim">历史作答保留原题面</span>
         </div>
 
         <Card className="mt-2 overflow-hidden">
@@ -621,40 +624,18 @@ export default function AdminQuestionBankPage() {
                         className="mt-1 accent-accent"
                       />
                       <div className="min-w-0 flex-1">
+                        <p className="font-mono text-xs font-medium text-text-dim">{question.id}</p>
                         <p className="line-clamp-3 text-sm leading-relaxed text-text">
                           {question.question}
                         </p>
-                        <p className="mt-1 font-mono text-xs text-text-dim">
-                          {question.id} · {question.kp_name}
-                        </p>
+                        <p className="mt-1 text-xs text-text-dim">{question.kp_name}</p>
                         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                          <Badge color={enabled ? '#2a9d8f' : '#f25f4c'}>
-                            {enabled ? '已启用' : '已禁用'}
-                          </Badge>
+                          <QuestionStatusBadge enabled={enabled} reason={question.checkMessage} />
                           <span className="text-xs text-text-dim">
                             {question.grade} / {TYPE_LABELS[question.type] ?? question.type} /{' '}
                             {DIFFICULTY_LABELS[question.difficulty] ?? question.difficulty}
                           </span>
                         </div>
-                        {question.checkMessage && (
-                          <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-text-dim">
-                            {question.checkMessage}
-                          </p>
-                        )}
-                        {question.reportSummary && (
-                          <button
-                            type="button"
-                            onClick={() => void openQuestionReports(question)}
-                            className="mt-3 w-full rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-left transition-colors hover:border-red-500/40"
-                          >
-                            <span className="flex items-center gap-1.5 text-xs font-semibold text-red-500">
-                              <Flag size={13} /> {question.reportSummary.openCount} 条待处理反馈
-                            </span>
-                            <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-text-dim">
-                              {question.reportSummary.latestReason}
-                            </span>
-                          </button>
-                        )}
                       </div>
                       <div className="flex flex-col gap-1">
                         <button
@@ -673,7 +654,18 @@ export default function AdminQuestionBankPage() {
                         >
                           <Eye size={16} />
                         </button>
-                        {enabled && (
+                        {question.reportSummary && (
+                          <button
+                            type="button"
+                            onClick={() => void openQuestionReports(question)}
+                            className="relative rounded-lg p-2 text-red-500 hover:bg-red-500/10"
+                            aria-label={`查看 ${question.id} 的 ${question.reportSummary.openCount} 条反馈`}
+                          >
+                            <Flag size={16} />
+                            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500" />
+                          </button>
+                        )}
+                        {enabled ? (
                           <button
                             type="button"
                             onClick={() => requestQuestionStatus(question, false)}
@@ -681,6 +673,15 @@ export default function AdminQuestionBankPage() {
                             aria-label={`停用 ${question.id}`}
                           >
                             <Ban size={16} />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => requestQuestionStatus(question, true)}
+                            className="rounded-lg p-2 text-green hover:bg-green/10"
+                            aria-label={`恢复 ${question.id}`}
+                          >
+                            <RotateCcw size={16} />
                           </button>
                         )}
                       </div>
@@ -693,13 +694,13 @@ export default function AdminQuestionBankPage() {
             <table className="w-full min-w-[1180px] table-fixed border-collapse text-left text-sm">
               <colgroup>
                 <col className="w-12" />
-                <col className="w-[27%]" />
-                <col className="w-[15%]" />
+                <col className="w-28" />
+                <col className="w-[30%]" />
+                <col className="w-[17%]" />
                 <col className="w-28" />
                 <col className="w-32" />
-                <col className="w-48" />
-                <col className="w-36" />
-                <col className="w-32" />
+                <col className="w-24" />
+                <col className="w-40" />
               </colgroup>
               <thead className="bg-surface2 text-xs text-text-dim">
                 <tr>
@@ -717,12 +718,12 @@ export default function AdminQuestionBankPage() {
                       className="accent-accent"
                     />
                   </th>
-                  <th className="whitespace-nowrap px-3 py-3">题目 / ID</th>
+                  <th className="whitespace-nowrap px-3 py-3">ID</th>
+                  <th className="whitespace-nowrap px-3 py-3">题目</th>
                   <th className="whitespace-nowrap px-3 py-3">知识点</th>
                   <th className="whitespace-nowrap px-3 py-3">年级学期</th>
                   <th className="whitespace-nowrap px-3 py-3">题型 / 难度</th>
                   <th className="whitespace-nowrap px-3 py-3">状态</th>
-                  <th className="whitespace-nowrap px-3 py-3">用户反馈</th>
                   <th className="whitespace-nowrap px-3 py-3">操作</th>
                 </tr>
               </thead>
@@ -761,11 +762,13 @@ export default function AdminQuestionBankPage() {
                             className="accent-accent"
                           />
                         </td>
+                        <td className="whitespace-nowrap px-3 py-3 align-top font-mono text-xs text-text-dim">
+                          {question.id}
+                        </td>
                         <td className="max-w-xl px-3 py-3 align-top">
                           <p className="line-clamp-2 leading-relaxed text-text">
                             {question.question}
                           </p>
-                          <p className="mt-1 font-mono text-xs text-text-dim">{question.id}</p>
                         </td>
                         <td className="px-3 py-3 align-top">
                           <p className="font-medium text-text">{question.kp_name}</p>
@@ -786,36 +789,8 @@ export default function AdminQuestionBankPage() {
                             </span>
                           </div>
                         </td>
-                        <td className="max-w-xs px-3 py-3 align-top">
-                          <Badge color={enabled ? '#2a9d8f' : '#f25f4c'}>
-                            {enabled ? '已启用' : '已禁用'}
-                          </Badge>
-                          {question.checkMessage && (
-                            <p
-                              className="mt-2 line-clamp-2 text-xs leading-relaxed text-text-dim"
-                              title={question.checkMessage}
-                            >
-                              {question.checkMessage}
-                            </p>
-                          )}
-                        </td>
-                        <td className="max-w-xs px-3 py-3 align-top">
-                          {question.reportSummary ? (
-                            <button
-                              type="button"
-                              onClick={() => void openQuestionReports(question)}
-                              className="group text-left"
-                            >
-                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-500 group-hover:bg-red-500/15">
-                                <Flag size={12} /> {question.reportSummary.openCount} 条待处理
-                              </span>
-                              <span className="mt-1.5 block line-clamp-2 text-xs leading-relaxed text-text-dim group-hover:text-text">
-                                {question.reportSummary.latestReason}
-                              </span>
-                            </button>
-                          ) : (
-                            <span className="text-xs text-text-dim/60">暂无反馈</span>
-                          )}
+                        <td className="px-3 py-3 align-top">
+                          <QuestionStatusBadge enabled={enabled} reason={question.checkMessage} />
                         </td>
                         <td className="px-3 py-3 align-top">
                           <div className="flex gap-1">
@@ -823,7 +798,7 @@ export default function AdminQuestionBankPage() {
                               type="button"
                               onClick={() => setPreviewing(question)}
                               className="rounded-lg p-2 text-text-dim hover:bg-surface2 hover:text-accent"
-                              title="预览后台版本"
+                              aria-label={`预览 ${question.id}`}
                             >
                               <Eye size={15} />
                             </button>
@@ -831,18 +806,38 @@ export default function AdminQuestionBankPage() {
                               type="button"
                               onClick={() => setEditing(question)}
                               className="rounded-lg p-2 text-text-dim hover:bg-surface2 hover:text-accent"
-                              title="编辑题目"
+                              aria-label={`编辑 ${question.id}`}
                             >
                               <Edit3 size={15} />
                             </button>
-                            {enabled && (
+                            {question.reportSummary && (
+                              <button
+                                type="button"
+                                onClick={() => void openQuestionReports(question)}
+                                className="relative rounded-lg p-2 text-red-500 hover:bg-red-500/10"
+                                aria-label={`查看 ${question.id} 的 ${question.reportSummary.openCount} 条反馈`}
+                              >
+                                <Flag size={15} />
+                                <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500" />
+                              </button>
+                            )}
+                            {enabled ? (
                               <button
                                 type="button"
                                 onClick={() => requestQuestionStatus(question, false)}
                                 className="rounded-lg p-2 text-text-dim hover:bg-red-500/10 hover:text-red-500"
-                                title="立即停用"
+                                aria-label={`停用 ${question.id}`}
                               >
                                 <Ban size={15} />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => requestQuestionStatus(question, true)}
+                                className="rounded-lg p-2 text-text-dim hover:bg-green/10 hover:text-green"
+                                aria-label={`恢复 ${question.id}`}
+                              >
+                                <RotateCcw size={15} />
                               </button>
                             )}
                           </div>
@@ -973,16 +968,20 @@ export default function AdminQuestionBankPage() {
         title={
           pendingAction?.type === 'dismiss'
             ? '忽略这些反馈？'
-            : pendingAction?.enable
-              ? '启用所选题目？'
-              : '禁用所选题目？'
+            : isSingleRestore
+              ? '恢复这道题？'
+              : pendingAction?.enable
+                ? '启用所选题目？'
+                : '禁用所选题目？'
         }
         description={
           pendingAction?.type === 'dismiss'
             ? '确认题目无需修改后，可将这些反馈移出待处理列表，操作会保留记录。'
-            : pendingAction
-              ? `本次操作包含 ${pendingAction.ids.length} 道题，提交后会自动同步至学生题库。`
-              : undefined
+            : isSingleRestore
+              ? '恢复后，后续新作答可以再次抽到这道题。'
+              : pendingAction
+                ? `本次操作包含 ${pendingAction.ids.length} 道题，操作后立即对后续新作答生效。`
+                : undefined
         }
         dismissible={!saving}
         onClose={closeActionDialog}
@@ -1002,9 +1001,11 @@ export default function AdminQuestionBankPage() {
                 ? '处理中…'
                 : pendingAction?.type === 'dismiss'
                   ? '确认忽略'
-                  : pendingAction?.enable
-                    ? '确认启用'
-                    : '确认禁用'}
+                  : isSingleRestore
+                    ? '确认恢复'
+                    : pendingAction?.enable
+                      ? '确认启用'
+                      : '确认禁用'}
             </Button>
           </>
         }

@@ -27,8 +27,6 @@ interface EditorState {
   solution: string;
   commonMistake: string;
   hint: string;
-  enable: boolean;
-  checkMessage: string;
 }
 
 const DIFFICULTY_OPTIONS = [
@@ -37,8 +35,8 @@ const DIFFICULTY_OPTIONS = [
   { value: 'hard', label: '困难' },
 ] satisfies SelectOption[];
 const TYPE_OPTIONS = [
-  { value: 'fill_blank', label: '填空题' },
   { value: 'choice', label: '选择题' },
+  { value: 'fill_blank', label: '填空题' },
   { value: 'mixed', label: '综合题' },
 ] satisfies SelectOption[];
 
@@ -58,8 +56,6 @@ function toEditorState(question: Question): EditorState {
     solution: question.solution,
     commonMistake: question.common_mistake,
     hint: question.hint,
-    enable: question.enable !== false,
-    checkMessage: question.checkMessage ?? '',
   };
 }
 
@@ -141,9 +137,6 @@ export default function QuestionEditor({ question, saving, onClose, onSave }: Qu
             content: line.slice(separator + 1).trim(),
           };
         });
-      if (!state.enable && !state.checkMessage.trim()) {
-        throw new Error('禁用题目时必须填写质量原因');
-      }
       await onSave({
         kp_id: state.kpId,
         kp_name: state.kpName,
@@ -160,8 +153,8 @@ export default function QuestionEditor({ question, saving, onClose, onSave }: Qu
         solution: state.solution,
         common_mistake: state.commonMistake,
         hint: state.hint,
-        enable: state.enable,
-        checkMessage: state.checkMessage.trim() || null,
+        enable: true,
+        checkMessage: null,
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '保存失败');
@@ -284,27 +277,6 @@ export default function QuestionEditor({ question, saving, onClose, onSave }: Qu
             onChange={value => update('hint', value)}
             multiline
           />
-
-          <div className="sm:col-span-2 rounded-2xl border border-border bg-surface p-4">
-            <label className="flex items-center gap-3 text-sm font-medium text-text">
-              <input
-                type="checkbox"
-                checked={state.enable}
-                onChange={event => update('enable', event.target.checked)}
-                className="h-4 w-4 accent-accent"
-              />
-              保存后允许学生在新建作答中使用
-            </label>
-            <div className="mt-3">
-              <TextField
-                label="质量原因"
-                value={state.checkMessage}
-                onChange={value => update('checkMessage', value)}
-                multiline
-                hint="禁用时必填；启用后可清空。"
-              />
-            </div>
-          </div>
         </div>
 
         <footer className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-border bg-bg/95 px-5 py-4 backdrop-blur">
@@ -315,7 +287,7 @@ export default function QuestionEditor({ question, saving, onClose, onSave }: Qu
             </Button>
             <Button variant="primary" onClick={handleSubmit} disabled={saving}>
               <Save size={15} />
-              {saving ? '保存中…' : '保存并同步'}
+              {saving ? '保存中…' : '保存'}
             </Button>
           </div>
         </footer>

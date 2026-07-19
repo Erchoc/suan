@@ -177,6 +177,7 @@ function buildCheckPrompt(batch: Question[]): string {
 
 ### A. 答案正确性
 - 填空题：根据题意重新计算，blanks 中的答案是否完全正确
+- blanks 只表示学生需要在 ____ 内输入的内容；若题干已在空格前后提供单位或符号（例如“____%”对应 blanks 为“16.7”），答案无需重复该单位或符号，不能因此判错
 - 选择题：correctChoice 指定的选项是否确实是唯一正确答案
 - 计算过程和 solution 是否一致
 

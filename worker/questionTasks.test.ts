@@ -217,6 +217,19 @@ describe('question task validation and prompts', () => {
     expect(buildQualityPrompt([generatedQuestion('1-1-90')])).toContain('逐题质检以下 1 道题');
   });
 
+  it('explains that answer values do not repeat surrounding units', () => {
+    const prompt = buildQualityPrompt([
+      generatedQuestion('6-10-07', {
+        question: '把 1/6 化成百分数约是 ____%。',
+        blanks: ['16.7'],
+      }),
+    ]);
+
+    expect(prompt).toContain('blanks 只表示学生需要在 ____ 内输入的内容');
+    expect(prompt).toContain('“____%”对应 blanks 为“16.7”');
+    expect(prompt).toContain('"blanks":["16.7"]');
+  });
+
   it('parses reasoning-wrapped generated questions and assigns server-owned IDs', () => {
     const parsed = parseGeneratedQuestions(
       `<think>先检查字段。</think>\n${JSON.stringify(generationPayload())}`,
