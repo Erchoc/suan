@@ -101,7 +101,7 @@ export default function Home() {
       {/* Bridge knowledge point showcase. */}
       <section className="px-4 sm:px-6 py-12 sm:py-16 max-w-5xl mx-auto w-full">
         <h2 className="font-serif text-xl sm:text-2xl font-semibold mb-2 text-center">
-          小初衔接桥头堡
+          小升初衔接桥头堡
         </h2>
         <p className="text-text-dim text-center mb-6 sm:mb-8 text-sm">
           四大关键节点，打通小学到初中的知识断层

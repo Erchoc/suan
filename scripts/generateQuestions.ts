@@ -332,7 +332,9 @@ function buildPrompt(
   startSeq: number,
 ): string {
   const depsDesc = kp.deps.length > 0 ? `\n前置知识点：${kp.deps.join('、')}` : '';
-  const bridgeNote = kp.isBridge ? '\n⚠️ 该知识点是小初衔接桥头堡，请适当增加综合应用题比例。' : '';
+  const bridgeNote = kp.isBridge
+    ? '\n⚠️ 该知识点是小升初衔接桥头堡，请适当增加综合应用题比例。'
+    : '';
   const seqStr = String(startSeq).padStart(2, '0');
 
   const kpHeader = `知识点信息：
