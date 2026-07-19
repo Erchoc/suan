@@ -12,21 +12,28 @@ import {
 import {
   batchSetQuestionStatus,
   dismissOpenQuestionReports,
-  exportDraftQuestions,
   getPublishedQuestion,
   isMissingQuestionBankSchema,
   listAdminQuestions,
   listOpenQuestionReports,
   listPublishedQuestions,
-  listQuestionAudit,
   parseQuestionPatch,
-  publishQuestionBank,
   QuestionBankError,
   type QuestionDifficulty,
   type QuestionType,
   submitQuestionReport,
   updateQuestion,
 } from './questionBank';
+import {
+  cancelQuestionTask,
+  createQuestionTask,
+  failQuestionTask,
+  getQuestionTask,
+  listQuestionTasks,
+  parseQuestionTaskRequest,
+} from './questionTasks';
+
+export { QuestionTaskWorkflow } from './questionTaskWorkflow';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MESSAGES = 30;
@@ -818,37 +825,83 @@ export function createApp(overrides: Partial<AppDependencies> = {}) {
     return c.json({ ok: true, updated: new Set(body.ids).size, meta });
   });
 
-  app.post('/api/admin/questions/publish', async c => {
+  app.post('/api/admin/question-tasks', async c => {
     assertSameOrigin(c);
     await assertAdminAuthenticated(c, dependencies.now());
     assertJsonRequest(c);
-    const body = await readJsonWithLimit(c.req.raw);
-    if (!isRecord(body) || !Number.isInteger(body.expectedDraftRevision)) {
-      throw new ApiError(400, 'BAD_REQUEST', 'expectedDraftRevision 不合法');
+    const rateLimit = await c.env.TASK_RATE_LIMITER.limit({
+      key: getRateLimitKey(c, 'question-task'),
+    });
+    if (!rateLimit.success) {
+      c.header('retry-after', '60');
+      throw new ApiError(429, 'RATE_LIMITED', '题库任务启动过于频繁，请稍后再试');
     }
-    return c.json(
-      await publishQuestionBank(
+    const request = parseQuestionTaskRequest(await readJsonWithLimit(c.req.raw));
+    const taskId = dependencies.randomUUID();
+    const createdAt = formatSqlTimestamp(dependencies.now());
+    const task = await createQuestionTask(c.env.CONTENT_DB, taskId, request, createdAt);
+    try {
+      await c.env.QUESTION_TASK_WORKFLOW.create({
+        id: taskId,
+        params: { taskId, ...request },
+        retention: { successRetention: '3 days', errorRetention: '7 days' },
+      });
+    } catch (error) {
+      await failQuestionTask(
         c.env.CONTENT_DB,
-        Number(body.expectedDraftRevision),
+        taskId,
+        'Cloudflare Workflow 启动失败，请稍后重试',
         formatSqlTimestamp(dependencies.now()),
-      ),
-    );
+      );
+      console.error({
+        event: 'question_task_start_failed',
+        traceId: c.get('traceId'),
+        taskId,
+        error: error instanceof Error ? error.name : 'UnknownError',
+      });
+      throw new ApiError(503, 'QUESTION_BANK_NOT_READY', '题库任务暂时无法启动');
+    }
+    return c.json({ data: task }, 201);
   });
 
-  app.get('/api/admin/questions/export', async c => {
+  app.get('/api/admin/question-tasks', async c => {
     await assertAdminAuthenticated(c, dependencies.now());
-    const result = await exportDraftQuestions(c.env.CONTENT_DB);
-    c.header(
-      'content-disposition',
-      `attachment; filename="questions-r${result.meta.draftRevision}.json"`,
-    );
-    return c.json(result);
+    const limit = readPositiveInteger(c.req.query('limit'), 10, 30, 'limit');
+    return c.json({ data: await listQuestionTasks(c.env.CONTENT_DB, limit) });
   });
 
-  app.get('/api/admin/question-audit', async c => {
+  app.get('/api/admin/question-tasks/:id', async c => {
     await assertAdminAuthenticated(c, dependencies.now());
-    const limit = readPositiveInteger(c.req.query('limit'), 30, 100, 'limit');
-    return c.json({ data: await listQuestionAudit(c.env.CONTENT_DB, limit) });
+    const taskId = c.req.param('id');
+    if (!CLIENT_ID_PATTERN.test(taskId)) {
+      throw new ApiError(400, 'BAD_REQUEST', '任务 ID 不合法');
+    }
+    const task = await getQuestionTask(c.env.CONTENT_DB, taskId);
+    let runtimeStatus: string | null = null;
+    try {
+      const instance = await c.env.QUESTION_TASK_WORKFLOW.get(task.workflowInstanceId);
+      runtimeStatus = (await instance.status()).status;
+    } catch {
+      runtimeStatus = null;
+    }
+    return c.json({ data: task, runtimeStatus });
+  });
+
+  app.post('/api/admin/question-tasks/:id/stop', async c => {
+    assertSameOrigin(c);
+    await assertAdminAuthenticated(c, dependencies.now());
+    const taskId = c.req.param('id');
+    if (!CLIENT_ID_PATTERN.test(taskId)) {
+      throw new ApiError(400, 'BAD_REQUEST', '任务 ID 不合法');
+    }
+    const task = await getQuestionTask(c.env.CONTENT_DB, taskId);
+    if (task.status !== 'queued' && task.status !== 'running') {
+      throw new ApiError(409, 'CONFLICT', '任务已经结束');
+    }
+    const instance = await c.env.QUESTION_TASK_WORKFLOW.get(task.workflowInstanceId);
+    await instance.terminate();
+    await cancelQuestionTask(c.env.CONTENT_DB, taskId, formatSqlTimestamp(dependencies.now()));
+    return c.json({ ok: true });
   });
 
   app.post('/api/ai/chat', async c => {

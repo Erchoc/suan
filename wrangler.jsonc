@@ -16,6 +16,13 @@
       "migrations_dir": "migrations"
     }
   ],
+  "workflows": [
+    {
+      "name": "suan-starter-question-tasks",
+      "binding": "QUESTION_TASK_WORKFLOW",
+      "class_name": "QuestionTaskWorkflow"
+    }
+  ],
   "ratelimits": [
     {
       "name": "AI_RATE_LIMITER",
@@ -38,6 +45,14 @@
       "namespace_id": "2026071803",
       "simple": {
         "limit": 6,
+        "period": 60
+      }
+    },
+    {
+      "name": "TASK_RATE_LIMITER",
+      "namespace_id": "2026071804",
+      "simple": {
+        "limit": 4,
         "period": 60
       }
     }
@@ -80,6 +95,13 @@
           "migrations_dir": "migrations"
         }
       ],
+      "workflows": [
+        {
+          "name": "suan-question-tasks",
+          "binding": "QUESTION_TASK_WORKFLOW",
+          "class_name": "QuestionTaskWorkflow"
+        }
+      ],
       "ratelimits": [
         {
           "name": "AI_RATE_LIMITER",
@@ -102,6 +124,14 @@
           "namespace_id": "2026071903",
           "simple": {
             "limit": 6,
+            "period": 60
+          }
+        },
+        {
+          "name": "TASK_RATE_LIMITER",
+          "namespace_id": "2026071904",
+          "simple": {
+            "limit": 4,
             "period": 60
           }
         }

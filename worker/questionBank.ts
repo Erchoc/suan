@@ -67,6 +67,20 @@ export interface AdminQuestionFilters {
   attention?: 'reported';
 }
 
+export interface QualityQuestionFilters {
+  scope: 'all' | 'enabled' | 'disabled' | 'reported';
+  grade?: string;
+  semester?: string;
+  type?: QuestionType;
+  limit: number;
+}
+
+export interface QualityCheckDecision {
+  id: string;
+  status: 'ok' | 'error';
+  reason?: string;
+}
+
 export interface QuestionReportSummary {
   openCount: number;
   latestReason: string;
@@ -95,17 +109,6 @@ export interface QuestionReportRecord {
   status: 'open' | 'resolved' | 'dismissed';
   createdAt: string;
   resolvedAt: string | null;
-}
-
-export interface QuestionAuditEntry {
-  id: number;
-  revision: number;
-  questionId: string | null;
-  action: string;
-  before: unknown;
-  after: unknown;
-  actor: string;
-  createdAt: string;
 }
 
 type QuestionBankErrorCode = 'NOT_FOUND' | 'VALIDATION' | 'CONFLICT' | 'NOT_READY';
@@ -176,17 +179,6 @@ interface QuestionReportRow {
   status: 'open' | 'resolved' | 'dismissed';
   created_at: string;
   resolved_at: string | null;
-}
-
-interface AuditRow {
-  id: number;
-  revision: number;
-  question_id: string | null;
-  action: string;
-  before_json: string | null;
-  after_json: string | null;
-  actor: string;
-  created_at: string;
 }
 
 const QUESTION_COLUMNS = `id, kp_id, kp_name, grade, semester, difficulty, type, question,
@@ -463,6 +455,86 @@ function databaseValues(question: QuestionRecord, now: string): unknown[] {
   ];
 }
 
+function insertDatabaseValues(question: QuestionRecord, now: string): unknown[] {
+  return [
+    question.id,
+    question.kp_id,
+    question.kp_name,
+    question.grade,
+    question.semester,
+    question.difficulty,
+    question.type,
+    question.question,
+    JSON.stringify(question.blanks),
+    question.blank_types ? JSON.stringify(question.blank_types) : null,
+    question.choices ? JSON.stringify(question.choices) : null,
+    question.correctChoice ?? null,
+    question.solution,
+    question.common_mistake,
+    question.hint,
+    question.enable ? 1 : 0,
+    question.checkMessage ?? null,
+    now,
+    now,
+  ];
+}
+
+function buildIncrementalPublicationStatements(
+  db: D1Database,
+  questionIds: string[],
+  now: string,
+): D1PreparedStatement[] {
+  const uniqueIds = [...new Set(questionIds)];
+  const placeholders = uniqueIds.map(() => '?').join(', ');
+  return [
+    db
+      .prepare(
+        `INSERT OR REPLACE INTO published_question_versions
+          (revision, ${QUESTION_COLUMNS}, published_at)
+         SELECT (SELECT draft_revision FROM question_bank_meta WHERE singleton_id = 1),
+          ${QUESTION_COLUMNS}, ? FROM questions WHERE id IN (${placeholders})`,
+      )
+      .bind(now, ...uniqueIds),
+    db
+      .prepare(
+        `INSERT OR REPLACE INTO published_questions
+          (${QUESTION_COLUMNS}, published_revision, published_at)
+         SELECT ${QUESTION_COLUMNS},
+          (SELECT draft_revision FROM question_bank_meta WHERE singleton_id = 1), ?
+         FROM questions WHERE id IN (${placeholders})`,
+      )
+      .bind(now, ...uniqueIds),
+    db
+      .prepare(
+        `INSERT OR REPLACE INTO question_bank_releases
+          (revision, question_count, enabled_count, source_sha256, published_at)
+         SELECT meta.draft_revision, stats.total, stats.enabled, meta.source_sha256, ?
+         FROM question_bank_meta meta
+         CROSS JOIN (
+           SELECT COUNT(*) AS total, COALESCE(SUM(enable), 0) AS enabled FROM questions
+         ) stats
+         WHERE meta.singleton_id = 1`,
+      )
+      .bind(now),
+    db
+      .prepare(
+        `UPDATE question_reports SET status = 'resolved',
+          resolution_note = '题目修改已自动同步', resolved_at = ?
+         WHERE status = 'open' AND question_id IN (${placeholders})
+           AND published_revision < (
+             SELECT draft_revision FROM question_bank_meta WHERE singleton_id = 1
+           )`,
+      )
+      .bind(now, ...uniqueIds),
+    db
+      .prepare(
+        `UPDATE question_bank_meta SET published_revision = draft_revision,
+          published_at = ?, updated_at = ? WHERE singleton_id = 1`,
+      )
+      .bind(now, now),
+  ];
+}
+
 export async function getQuestionBankMeta(db: D1Database): Promise<QuestionBankMeta> {
   const row = await db
     .prepare(`SELECT draft_revision, published_revision, source_sha256, imported_at,
@@ -526,7 +598,8 @@ export async function submitQuestionReport(
   let snapshotRow = await db
     .prepare(
       `SELECT ${QUESTION_COLUMNS} FROM published_question_versions
-       WHERE revision = ? AND id = ? AND enable = 1`,
+       WHERE revision <= ? AND id = ? AND enable = 1
+       ORDER BY revision DESC LIMIT 1`,
     )
     .bind(input.publishedRevision, input.questionId)
     .first<QuestionRow>();
@@ -732,6 +805,7 @@ export async function updateQuestion(
          FROM question_bank_meta WHERE singleton_id = 1`,
       )
       .bind(questionId, JSON.stringify(before), JSON.stringify(after), now),
+    ...buildIncrementalPublicationStatements(db, [questionId], now),
   ]);
   return { question: after, meta: await getQuestionBankMeta(db) };
 }
@@ -794,139 +868,224 @@ export async function batchSetQuestionStatus(
           now,
         ),
     ),
+    ...buildIncrementalPublicationStatements(db, uniqueIds, now),
   ];
   await db.batch(statements);
   return getQuestionBankMeta(db);
 }
 
-export async function publishQuestionBank(
-  db: D1Database,
-  expectedDraftRevision: number,
-  now: string,
-) {
-  const [meta, stats] = await Promise.all([
-    getQuestionBankMeta(db),
-    db
-      .prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(enable), 0) AS enabled,
-        COUNT(*) - COALESCE(SUM(enable), 0) AS disabled, 0 AS reported FROM questions`)
-      .first<StatsRow>(),
-  ]);
-  if (meta.draftRevision !== expectedDraftRevision) {
-    throw new QuestionBankError('CONFLICT', '题库草稿已更新，请刷新后重试');
-  }
-  if (meta.draftRevision === meta.publishedRevision) {
-    throw new QuestionBankError('CONFLICT', '当前没有待发布变更');
-  }
-  if (!stats?.total) throw new QuestionBankError('NOT_READY', '题库尚未导入');
+interface AppliedTaskBatchRow {
+  result_json: string;
+}
 
+async function readAppliedTaskBatch<T>(
+  db: D1Database,
+  taskId: string,
+  batchKey: string,
+): Promise<T | null> {
+  const row = await db
+    .prepare(`SELECT result_json FROM question_task_batches WHERE task_id = ? AND batch_key = ?`)
+    .bind(taskId, batchKey)
+    .first<AppliedTaskBatchRow>();
+  return row ? parseJson<T>(row.result_json, {} as T) : null;
+}
+
+export async function insertGeneratedQuestionBatch(
+  db: D1Database,
+  taskId: string,
+  batchKey: string,
+  questions: QuestionRecord[],
+  now: string,
+): Promise<{ inserted: number; questionIds: string[] }> {
+  const applied = await readAppliedTaskBatch<{ inserted: number; questionIds: string[] }>(
+    db,
+    taskId,
+    batchKey,
+  );
+  if (applied) return applied;
+  if (questions.length === 0 || questions.length > 20) {
+    throw new QuestionBankError('VALIDATION', '每批生成题目数量必须为 1 到 20');
+  }
+  const questionIds = questions.map(question => question.id);
+  if (new Set(questionIds).size !== questionIds.length) {
+    throw new QuestionBankError('VALIDATION', '生成题目 ID 重复');
+  }
+  for (const question of questions) {
+    validateQuestion(question);
+    if (question.enable || !question.checkMessage) {
+      throw new QuestionBankError('VALIDATION', 'AI 新题必须先以待质检状态写入');
+    }
+  }
+  const placeholders = questionIds.map(() => '?').join(', ');
+  const existing = await db
+    .prepare(`SELECT id FROM questions WHERE id IN (${placeholders}) LIMIT 1`)
+    .bind(...questionIds)
+    .first<{ id: string }>();
+  if (existing) {
+    throw new QuestionBankError('CONFLICT', `题目 ID ${existing.id} 已存在，请重新运行任务`);
+  }
+
+  const result = { inserted: questions.length, questionIds };
   await db.batch([
+    ...questions.map(question =>
+      db
+        .prepare(
+          `INSERT INTO questions
+            (${QUESTION_COLUMNS}, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(...insertDatabaseValues(question, now)),
+    ),
     db
       .prepare(
-        `INSERT OR REPLACE INTO published_question_versions
-          (revision, ${QUESTION_COLUMNS}, published_at)
-         SELECT ?, ${QUESTION_COLUMNS}, ? FROM questions
-         WHERE (SELECT draft_revision = ? AND draft_revision != published_revision
-                FROM question_bank_meta WHERE singleton_id = 1)`,
+        `UPDATE question_bank_meta SET draft_revision = draft_revision + 1,
+          updated_at = ? WHERE singleton_id = 1`,
       )
-      .bind(meta.draftRevision, now, expectedDraftRevision),
-    db
-      .prepare(
-        `DELETE FROM published_questions
-         WHERE (SELECT draft_revision = ? AND draft_revision != published_revision
-                FROM question_bank_meta WHERE singleton_id = 1)`,
-      )
-      .bind(expectedDraftRevision),
-    db
-      .prepare(
-        `INSERT INTO published_questions (${QUESTION_COLUMNS}, published_revision, published_at)
-         SELECT ${QUESTION_COLUMNS}, ?, ? FROM questions
-         WHERE (SELECT draft_revision = ? AND draft_revision != published_revision
-                FROM question_bank_meta WHERE singleton_id = 1)`,
-      )
-      .bind(meta.draftRevision, now, expectedDraftRevision),
-    db
-      .prepare(
-        `INSERT OR REPLACE INTO question_bank_releases
-          (revision, question_count, enabled_count, source_sha256, published_at)
-         SELECT ?, ?, ?, source_sha256, ? FROM question_bank_meta
-         WHERE singleton_id = 1 AND draft_revision = ?
-           AND draft_revision != published_revision`,
-      )
-      .bind(meta.draftRevision, stats.total, stats.enabled, now, expectedDraftRevision),
+      .bind(now),
     db
       .prepare(
         `INSERT INTO question_audit_logs
           (revision, question_id, action, before_json, after_json, actor, created_at)
-         SELECT ?, NULL, 'publish', ?, ?, 'admin', ? FROM question_bank_meta
-         WHERE singleton_id = 1 AND draft_revision = ?
-           AND draft_revision != published_revision`,
+         SELECT draft_revision, NULL, 'ai_generate', NULL, ?, 'minimax', ?
+         FROM question_bank_meta WHERE singleton_id = 1`,
       )
-      .bind(
-        meta.draftRevision,
-        JSON.stringify(meta),
-        JSON.stringify({ revision: meta.draftRevision, ...stats }),
-        now,
-        expectedDraftRevision,
-      ),
+      .bind(JSON.stringify({ taskId, batchKey, questionIds }), now),
+    ...buildIncrementalPublicationStatements(db, questionIds, now),
     db
       .prepare(
-        `UPDATE question_reports SET status = 'resolved',
-          resolution_note = '题目修改已发布', resolved_at = ?
-         WHERE status = 'open'
-           AND (SELECT draft_revision = ? AND draft_revision != published_revision
-                FROM question_bank_meta WHERE singleton_id = 1)
-           AND EXISTS (
-             SELECT 1 FROM question_audit_logs audit
-             WHERE audit.question_id = question_reports.question_id
-               AND audit.revision > question_reports.published_revision
-               AND audit.revision <= ?
-               AND audit.action IN ('update', 'batch_enable', 'batch_disable')
-           )`,
+        `INSERT INTO question_task_batches (task_id, batch_key, result_json, applied_at)
+         VALUES (?, ?, ?, ?)`,
       )
-      .bind(now, expectedDraftRevision, expectedDraftRevision),
-    db
-      .prepare(
-        `UPDATE question_bank_meta SET published_revision = draft_revision,
-          published_at = ?, updated_at = ? WHERE singleton_id = 1
-          AND draft_revision = ? AND draft_revision != published_revision`,
-      )
-      .bind(now, now, expectedDraftRevision),
+      .bind(taskId, batchKey, JSON.stringify(result), now),
   ]);
-  const publishedMeta = await getQuestionBankMeta(db);
-  if (publishedMeta.publishedRevision !== expectedDraftRevision) {
-    throw new QuestionBankError('CONFLICT', '题库草稿已更新，请刷新后重试');
-  }
-  return { meta: publishedMeta, stats };
+  return result;
 }
 
-export async function listQuestionAudit(db: D1Database, limit: number) {
+export async function listQuestionsForQuality(
+  db: D1Database,
+  filters: QualityQuestionFilters,
+): Promise<QuestionRecord[]> {
+  const clauses: string[] = [];
+  const values: unknown[] = [];
+  if (filters.scope === 'enabled') clauses.push('q.enable = 1');
+  if (filters.scope === 'disabled') clauses.push('q.enable = 0');
+  if (filters.scope === 'reported') {
+    clauses.push(
+      `EXISTS (SELECT 1 FROM question_reports report
+        WHERE report.question_id = q.id AND report.status = 'open')`,
+    );
+  }
+  for (const [column, value] of [
+    ['grade', filters.grade],
+    ['semester', filters.semester],
+    ['type', filters.type],
+  ] as const) {
+    if (!value) continue;
+    clauses.push(`q.${column} = ?`);
+    values.push(value);
+  }
+  const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
   const result = await db
     .prepare(
-      `SELECT id, revision, question_id, action, before_json, after_json, actor, created_at
-       FROM question_audit_logs ORDER BY id DESC LIMIT ?`,
+      `SELECT ${ADMIN_QUESTION_COLUMNS} FROM questions q${where}
+       ORDER BY CASE WHEN q.check_message IS NULL THEN 0 ELSE 1 END DESC,
+        q.updated_at DESC, q.id ASC LIMIT ?`,
     )
-    .bind(limit)
-    .all<AuditRow>();
-  return result.results.map(
-    (row): QuestionAuditEntry => ({
-      id: row.id,
-      revision: row.revision,
-      questionId: row.question_id,
-      action: row.action,
-      before: parseJson(row.before_json, null),
-      after: parseJson(row.after_json, null),
-      actor: row.actor,
-      createdAt: row.created_at,
-    }),
-  );
+    .bind(...values, filters.limit)
+    .all<QuestionRow>();
+  return result.results.map(rowToQuestion);
 }
 
-export async function exportDraftQuestions(db: D1Database) {
-  const [result, meta] = await Promise.all([
-    db.prepare(`SELECT ${QUESTION_COLUMNS} FROM questions ORDER BY id`).all<QuestionRow>(),
-    getQuestionBankMeta(db),
+export async function applyQualityQuestionBatch(
+  db: D1Database,
+  taskId: string,
+  batchKey: string,
+  decisions: QualityCheckDecision[],
+  now: string,
+): Promise<{ checked: number; passed: number; failed: number; questionIds: string[] }> {
+  const applied = await readAppliedTaskBatch<{
+    checked: number;
+    passed: number;
+    failed: number;
+    questionIds: string[];
+  }>(db, taskId, batchKey);
+  if (applied) return applied;
+  if (decisions.length === 0 || decisions.length > 20) {
+    throw new QuestionBankError('VALIDATION', '每批质检题目数量必须为 1 到 20');
+  }
+  const questionIds = decisions.map(decision => decision.id);
+  if (new Set(questionIds).size !== questionIds.length) {
+    throw new QuestionBankError('VALIDATION', '质检结果包含重复题目');
+  }
+  const placeholders = questionIds.map(() => '?').join(', ');
+  const rows = await db
+    .prepare(`SELECT ${QUESTION_COLUMNS} FROM questions WHERE id IN (${placeholders})`)
+    .bind(...questionIds)
+    .all<QuestionRow>();
+  if (rows.results.length !== questionIds.length) {
+    throw new QuestionBankError('NOT_FOUND', '部分质检题目不存在');
+  }
+  const beforeById = new Map(rows.results.map(row => [row.id, rowToQuestion(row)]));
+  const after = decisions.map(decision => {
+    const before = beforeById.get(decision.id);
+    if (!before) throw new QuestionBankError('NOT_FOUND', '质检题目不存在');
+    const reason = decision.reason?.trim();
+    if (decision.status === 'error' && (!reason || reason.length > 1_000)) {
+      throw new QuestionBankError('VALIDATION', '异常题目必须包含质量原因');
+    }
+    const generatedPending = before.checkMessage === 'AI 生成，等待质检';
+    const question: QuestionRecord = {
+      ...before,
+      enable: decision.status === 'ok' ? (generatedPending ? true : before.enable) : false,
+      checkMessage:
+        decision.status === 'ok' ? (generatedPending ? undefined : before.checkMessage) : reason,
+    };
+    validateQuestion(question);
+    return question;
+  });
+  const passed = decisions.filter(decision => decision.status === 'ok').length;
+  const result = {
+    checked: decisions.length,
+    passed,
+    failed: decisions.length - passed,
+    questionIds,
+  };
+  await db.batch([
+    ...after.map(question =>
+      db
+        .prepare(`UPDATE questions SET enable = ?, check_message = ?, updated_at = ? WHERE id = ?`)
+        .bind(question.enable ? 1 : 0, question.checkMessage ?? null, now, question.id),
+    ),
+    db
+      .prepare(
+        `UPDATE question_bank_meta SET draft_revision = draft_revision + 1,
+          updated_at = ? WHERE singleton_id = 1`,
+      )
+      .bind(now),
+    ...after.map(question =>
+      db
+        .prepare(
+          `INSERT INTO question_audit_logs
+            (revision, question_id, action, before_json, after_json, actor, created_at)
+           SELECT draft_revision, ?, 'ai_quality', ?, ?, 'minimax', ?
+           FROM question_bank_meta WHERE singleton_id = 1`,
+        )
+        .bind(
+          question.id,
+          JSON.stringify(beforeById.get(question.id)),
+          JSON.stringify(question),
+          now,
+        ),
+    ),
+    ...buildIncrementalPublicationStatements(db, questionIds, now),
+    db
+      .prepare(
+        `INSERT INTO question_task_batches (task_id, batch_key, result_json, applied_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .bind(taskId, batchKey, JSON.stringify(result), now),
   ]);
-  return { data: result.results.map(rowToQuestion), meta };
+  return result;
 }
 
 export function isMissingQuestionBankSchema(error: unknown): boolean {

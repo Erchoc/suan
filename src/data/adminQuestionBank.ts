@@ -69,15 +69,52 @@ export interface QuestionPatch {
   checkMessage?: string | null;
 }
 
-export interface QuestionAuditEntry {
+export type QuestionTaskType = 'generate' | 'quality';
+export type QuestionTaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface GenerateQuestionTaskParams {
+  grade: number;
+  semester?: '上' | '下';
+  kpId?: string;
+  typeMode: 'auto' | QuestionType;
+  countPerKnowledgePoint: 3 | 5;
+}
+
+export interface QualityQuestionTaskParams {
+  scope: 'all' | 'enabled' | 'disabled' | 'reported';
+  grade?: number;
+  semester?: '上' | '下';
+  type?: QuestionType;
+  limit: 20 | 50 | 100 | 200;
+}
+
+export type QuestionTaskParams = GenerateQuestionTaskParams | QualityQuestionTaskParams;
+
+export interface QuestionTaskEvent {
   id: number;
-  revision: number;
-  questionId: string | null;
-  action: string;
-  before: unknown;
-  after: unknown;
-  actor: string;
+  level: 'info' | 'success' | 'warning' | 'error';
+  message: string;
+  progressCurrent: number | null;
+  progressTotal: number | null;
   createdAt: string;
+}
+
+export interface QuestionTask {
+  id: string;
+  workflowInstanceId: string;
+  type: QuestionTaskType;
+  status: QuestionTaskStatus;
+  params: QuestionTaskParams;
+  stage: string;
+  progressCurrent: number;
+  progressTotal: number;
+  stats: Record<string, number>;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+  events?: QuestionTaskEvent[];
 }
 
 export class AdminApiError extends Error {
@@ -174,20 +211,6 @@ export function batchSetAdminQuestionStatus(
   });
 }
 
-export function publishAdminQuestionBank(expectedDraftRevision: number) {
-  return adminFetch<{
-    meta: QuestionBankMeta;
-    stats: { total: number; enabled: number; disabled: number };
-  }>('/api/admin/questions/publish', {
-    method: 'POST',
-    body: JSON.stringify({ expectedDraftRevision }),
-  });
-}
-
-export function listQuestionAudit(limit = 30): Promise<{ data: QuestionAuditEntry[] }> {
-  return adminFetch(`/api/admin/question-audit?limit=${limit}`);
-}
-
 export function listAdminQuestionReports(
   questionId: string,
 ): Promise<{ data: QuestionReportEntry[] }> {
@@ -206,6 +229,37 @@ export function dismissAdminQuestionReports(
   });
 }
 
-export function exportAdminQuestions(): Promise<{ data: Question[]; meta: QuestionBankMeta }> {
-  return adminFetch('/api/admin/questions/export');
+export function startQuestionTask(
+  type: 'generate',
+  params: GenerateQuestionTaskParams,
+): Promise<{ data: QuestionTask }>;
+export function startQuestionTask(
+  type: 'quality',
+  params: QualityQuestionTaskParams,
+): Promise<{ data: QuestionTask }>;
+export function startQuestionTask(
+  type: QuestionTaskType,
+  params: QuestionTaskParams,
+): Promise<{ data: QuestionTask }> {
+  return adminFetch('/api/admin/question-tasks', {
+    method: 'POST',
+    headers: { 'x-suan-client-id': getAdminClientId() },
+    body: JSON.stringify({ type, params }),
+  });
+}
+
+export function listQuestionTasks(limit = 10): Promise<{ data: QuestionTask[] }> {
+  return adminFetch(`/api/admin/question-tasks?limit=${limit}`);
+}
+
+export function getQuestionTask(
+  taskId: string,
+): Promise<{ data: QuestionTask; runtimeStatus: string | null }> {
+  return adminFetch(`/api/admin/question-tasks/${encodeURIComponent(taskId)}`);
+}
+
+export function stopQuestionTask(taskId: string): Promise<{ ok: true }> {
+  return adminFetch(`/api/admin/question-tasks/${encodeURIComponent(taskId)}/stop`, {
+    method: 'POST',
+  });
 }

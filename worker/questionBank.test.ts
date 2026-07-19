@@ -8,9 +8,7 @@ import {
   listAdminQuestions,
   listOpenQuestionReports,
   listPublishedQuestions,
-  listQuestionAudit,
   parseQuestionPatch,
-  publishQuestionBank,
   QuestionBankError,
   submitQuestionReport,
   updateQuestion,
@@ -64,6 +62,30 @@ async function setMeta(draftRevision: number, publishedRevision: number): Promis
   )
     .bind(draftRevision, publishedRevision, NOW, publishedRevision > 0 ? NOW : null, NOW)
     .run();
+}
+
+async function publishCurrentQuestion(questionId: string, revision = 1): Promise<void> {
+  await testEnv.CONTENT_DB.batch([
+    testEnv.CONTENT_DB.prepare(
+      `INSERT INTO published_questions
+        (id, kp_id, kp_name, grade, semester, difficulty, type, question, blanks_json,
+         blank_types_json, choices_json, correct_choice, solution, common_mistake, hint,
+         enable, check_message, published_revision, published_at)
+       SELECT id, kp_id, kp_name, grade, semester, difficulty, type, question, blanks_json,
+        blank_types_json, choices_json, correct_choice, solution, common_mistake, hint,
+        enable, check_message, ?, ? FROM questions WHERE id = ?`,
+    ).bind(revision, NOW, questionId),
+    testEnv.CONTENT_DB.prepare(
+      `INSERT INTO published_question_versions
+        (revision, id, kp_id, kp_name, grade, semester, difficulty, type, question,
+         blanks_json, blank_types_json, choices_json, correct_choice, solution,
+         common_mistake, hint, enable, check_message, published_at)
+       SELECT ?, id, kp_id, kp_name, grade, semester, difficulty, type, question,
+        blanks_json, blank_types_json, choices_json, correct_choice, solution,
+        common_mistake, hint, enable, check_message, ? FROM questions WHERE id = ?`,
+    ).bind(revision, NOW, questionId),
+  ]);
+  await setMeta(revision, revision);
 }
 
 beforeEach(async () => {
@@ -261,10 +283,9 @@ describe('question bank service edge cases', () => {
     });
   });
 
-  it('stores versioned reports, aggregates attention, and resolves them only after publish', async () => {
+  it('stores versioned reports and resolves them when a fix is automatically synchronized', async () => {
     await insertQuestion('reported-question');
-    await setMeta(1, 0);
-    await publishQuestionBank(testEnv.CONTENT_DB, 1, NOW);
+    await publishCurrentQuestion('reported-question');
 
     const first = await submitQuestionReport(
       testEnv.CONTENT_DB,
@@ -329,10 +350,6 @@ describe('question bank service edge cases', () => {
     );
     expect(
       (await listOpenQuestionReports(testEnv.CONTENT_DB, 'reported-question', 10)).length,
-    ).toBe(1);
-    await publishQuestionBank(testEnv.CONTENT_DB, 2, '2026-07-19T00:03:00.000Z');
-    expect(
-      (await listOpenQuestionReports(testEnv.CONTENT_DB, 'reported-question', 10)).length,
     ).toBe(0);
     await expect(
       testEnv.CONTENT_DB.prepare(
@@ -351,8 +368,7 @@ describe('question bank service edge cases', () => {
 
   it('dismisses false reports with an audit record and rejects invalid report input', async () => {
     await insertQuestion('dismissed-question');
-    await setMeta(1, 0);
-    await publishQuestionBank(testEnv.CONTENT_DB, 1, NOW);
+    await publishCurrentQuestion('dismissed-question');
 
     await expect(
       submitQuestionReport(
@@ -406,9 +422,11 @@ describe('question bank service edge cases', () => {
         NOW,
       ),
     ).resolves.toBe(1);
-    await expect(listQuestionAudit(testEnv.CONTENT_DB, 1)).resolves.toMatchObject([
-      { action: 'dismiss_reports', questionId: 'dismissed-question' },
-    ]);
+    await expect(
+      testEnv.CONTENT_DB.prepare(
+        `SELECT action, question_id FROM question_audit_logs ORDER BY id DESC LIMIT 1`,
+      ).first(),
+    ).resolves.toEqual({ action: 'dismiss_reports', question_id: 'dismissed-question' });
   });
 
   it('rejects missing rows and malformed stored JSON', async () => {
@@ -466,85 +484,22 @@ describe('question bank service edge cases', () => {
       NOW,
     );
     expect(meta.draftRevision).toBe(1);
+    expect(meta.publishedRevision).toBe(1);
     await expect(
       testEnv.CONTENT_DB.prepare('SELECT enable, check_message FROM questions WHERE id = ?')
         .bind('disabled')
         .first(),
     ).resolves.toEqual({ enable: 1, check_message: null });
-  });
-
-  it('rejects empty and unchanged releases', async () => {
-    await setMeta(1, 0);
-    await expect(publishQuestionBank(testEnv.CONTENT_DB, 1, NOW)).rejects.toThrow('题库尚未导入');
-
-    await insertQuestion();
-    await setMeta(1, 1);
-    await expect(publishQuestionBank(testEnv.CONTENT_DB, 1, NOW)).rejects.toThrow(
-      '当前没有待发布变更',
-    );
-  });
-
-  it('keeps the published snapshot intact when the draft changes before the publish batch', async () => {
-    await insertQuestion('question-1');
-    await setMeta(2, 1);
-    await testEnv.CONTENT_DB.prepare(
-      `INSERT INTO published_questions
-        (id, kp_id, kp_name, grade, semester, difficulty, type, question, blanks_json,
-         blank_types_json, choices_json, correct_choice, solution, common_mistake, hint,
-         enable, check_message, published_revision, published_at)
-       SELECT id, kp_id, kp_name, grade, semester, difficulty, type, 'Published question',
-         blanks_json, blank_types_json, choices_json, correct_choice, solution, common_mistake,
-         hint, enable, check_message, 1, ? FROM questions WHERE id = 'question-1'`,
-    )
-      .bind(NOW)
-      .run();
-
-    const database = testEnv.CONTENT_DB;
-    const racingDb = {
-      prepare: database.prepare.bind(database),
-      batch: async (statements: D1PreparedStatement[]) => {
-        await database
-          .prepare(`UPDATE question_bank_meta SET draft_revision = 3 WHERE singleton_id = 1`)
-          .run();
-        return database.batch(statements);
-      },
-      dump: database.dump.bind(database),
-      exec: database.exec.bind(database),
-      withSession: database.withSession.bind(database),
-    } as D1Database;
-
-    await expect(publishQuestionBank(racingDb, 2, NOW)).rejects.toMatchObject({
-      code: 'CONFLICT',
-    });
     await expect(
-      database
-        .prepare('SELECT question FROM published_questions WHERE id = ?')
-        .bind('question-1')
-        .first<{ question: string }>(),
-    ).resolves.toEqual({ question: 'Published question' });
-    await expect(getQuestionBankMeta(database)).resolves.toMatchObject({
-      draftRevision: 3,
-      publishedRevision: 1,
-    });
+      testEnv.CONTENT_DB.prepare(
+        `SELECT enable, published_revision FROM published_questions WHERE id = ?`,
+      )
+        .bind('disabled')
+        .first(),
+    ).resolves.toEqual({ enable: 1, published_revision: 1 });
   });
 
-  it('handles missing metadata, audit JSON corruption, and schema error detection', async () => {
-    await testEnv.CONTENT_DB.prepare(
-      `INSERT INTO question_audit_logs
-        (revision, question_id, action, before_json, after_json, actor, created_at)
-       VALUES (1, NULL, 'seed', NULL, NULL, 'system', ?)`,
-    )
-      .bind(NOW)
-      .run();
-    await expect(listQuestionAudit(testEnv.CONTENT_DB, 10)).resolves.toMatchObject([
-      { before: null, after: null },
-    ]);
-
-    await testEnv.CONTENT_DB.prepare(
-      `UPDATE question_audit_logs SET before_json = '{bad-json}' WHERE action = 'seed'`,
-    ).run();
-    await expect(listQuestionAudit(testEnv.CONTENT_DB, 10)).rejects.toThrow('题库数据格式损坏');
-
+  it('handles missing metadata and schema error detection', async () => {
     expect(isMissingQuestionBankSchema(new Error('no such table: questions'))).toBe(true);
     expect(isMissingQuestionBankSchema(new Error('other error'))).toBe(false);
     expect(isMissingQuestionBankSchema('no such table')).toBe(false);

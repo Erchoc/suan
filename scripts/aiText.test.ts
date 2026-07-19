@@ -93,6 +93,26 @@ describe('AI text helper', () => {
     });
   });
 
+  it('sends the current completion limit to MiniMax-compatible chat models', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ choices: [{ message: { content: 'result' } }] }));
+
+    await requestAIText({
+      config: makeConfig({
+        baseUrl: 'https://api.minimaxi.com/v1',
+        model: 'MiniMax-M2.7',
+      }),
+      prompt: 'prompt',
+      maxTokens: 4096,
+      fetcher,
+    });
+
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      max_completion_tokens: 4096,
+    });
+  });
+
   it('calls openai-coding and accepts output_text', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

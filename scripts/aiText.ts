@@ -131,11 +131,25 @@ function buildRequestBody(
     };
   }
 
-  return {
+  const body: Record<string, unknown> = {
     model: config.model,
     messages: [{ role: 'user', content: prompt }],
     temperature,
   };
+  let hostname = '';
+  try {
+    hostname = new URL(config.baseUrl).hostname;
+  } catch {
+    // The URL is validated before the request is sent.
+  }
+  if (
+    hostname === 'minimaxi.com' ||
+    hostname.endsWith('.minimaxi.com') ||
+    /^minimax-/i.test(config.model)
+  ) {
+    body.max_completion_tokens = maxTokens;
+  }
+  return body;
 }
 
 function extractOpenAIChatText(payload: unknown): string | null {

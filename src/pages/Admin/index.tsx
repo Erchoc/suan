@@ -4,19 +4,18 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Clock3,
-  Download,
   Edit3,
   Eye,
   Flag,
   KeyRound,
   RefreshCw,
   Search,
-  UploadCloud,
+  ShieldCheck,
+  Sparkles,
   X,
   XCircle,
 } from 'lucide-react';
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -29,18 +28,25 @@ import {
   type AdminQuestionList,
   batchSetAdminQuestionStatus,
   dismissAdminQuestionReports,
-  exportAdminQuestions,
+  type GenerateQuestionTaskParams,
   getAdminSession,
+  getQuestionTask,
   listAdminQuestionReports,
   listAdminQuestions,
-  listQuestionAudit,
+  listQuestionTasks,
   loginAdmin,
-  publishAdminQuestionBank,
-  type QuestionAuditEntry,
+  type QualityQuestionTaskParams,
   type QuestionReportEntry,
+  type QuestionTask,
+  type QuestionTaskParams,
+  type QuestionTaskType,
+  startQuestionTask,
+  stopQuestionTask,
   updateAdminQuestion,
 } from '../../data/adminQuestionBank';
 import QuestionEditor from './QuestionEditor';
+import QuestionPreviewDialog from './QuestionPreviewDialog';
+import { TaskLauncherDialog, TaskProgressCard, TaskProgressDialog } from './QuestionTaskDialogs';
 
 const DEFAULT_FILTERS: AdminQuestionFilters = { page: 1, pageSize: 30 };
 const GRADE_OPTIONS = [
@@ -69,16 +75,9 @@ const TYPE_OPTIONS = [
 ] satisfies SelectOption[];
 type PendingAction =
   | { type: 'batch'; enable: boolean; ids: string[] }
-  | { type: 'publish'; revision: number }
   | { type: 'dismiss'; questionId: string };
-const ACTION_LABELS: Record<string, string> = {
-  seed: '初始化题库',
-  update: '编辑题目',
-  batch_enable: '批量启用',
-  batch_disable: '批量禁用',
-  dismiss_reports: '忽略反馈',
-  publish: '发布题库',
-};
+const TYPE_LABELS = { fill_blank: '填空题', choice: '选择题', mixed: '综合题' };
+const DIFFICULTY_LABELS = { easy: '简单', medium: '中等', hard: '困难' };
 
 declare global {
   interface Window {
@@ -154,46 +153,6 @@ function StatCard({
   );
 }
 
-function AuditDrawer({ entries, onClose }: { entries: QuestionAuditEntry[]; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[75] flex justify-end bg-black/40" role="dialog">
-      <button type="button" className="flex-1" aria-label="关闭审计记录" onClick={onClose} />
-      <aside className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-bg shadow-2xl">
-        <header className="sticky top-0 flex items-center justify-between border-b border-border bg-bg/95 px-5 py-4 backdrop-blur">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-accent">Audit trail</p>
-            <h2 className="mt-1 font-serif text-xl font-semibold">最近变更</h2>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-surface2">
-            <X size={18} />
-          </button>
-        </header>
-        <div className="space-y-3 p-4">
-          {entries.length === 0 && (
-            <p className="py-10 text-center text-sm text-text-dim">暂无记录</p>
-          )}
-          {entries.map(entry => (
-            <Card key={entry.id} className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium text-text">
-                    {ACTION_LABELS[entry.action] ?? entry.action}
-                  </p>
-                  <p className="mt-1 text-xs text-text-dim">
-                    {entry.questionId ?? '全题库'} · 修订 r{entry.revision}
-                  </p>
-                </div>
-                <Clock3 size={15} className="mt-1 flex-shrink-0 text-text-dim" />
-              </div>
-              <p className="mt-3 text-xs text-text-dim">{formatDate(entry.createdAt)}</p>
-            </Card>
-          ))}
-        </div>
-      </aside>
-    </div>
-  );
-}
-
 export default function AdminQuestionBankPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [filters, setFilters] = useState<AdminQuestionFilters>(DEFAULT_FILTERS);
@@ -201,10 +160,16 @@ export default function AdminQuestionBankPage() {
   const [result, setResult] = useState<AdminQuestionList | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<AdminQuestion | null>(null);
+  const [previewing, setPreviewing] = useState<AdminQuestion | null>(null);
   const [reportQuestion, setReportQuestion] = useState<AdminQuestion | null>(null);
   const [reports, setReports] = useState<QuestionReportEntry[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [audit, setAudit] = useState<QuestionAuditEntry[] | null>(null);
+  const [tasks, setTasks] = useState<QuestionTask[]>([]);
+  const [taskLauncher, setTaskLauncher] = useState<QuestionTaskType | null>(null);
+  const [taskDetail, setTaskDetail] = useState<QuestionTask | null>(null);
+  const [taskStarting, setTaskStarting] = useState(false);
+  const [taskStopping, setTaskStopping] = useState(false);
+  const lastTerminalTaskRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -243,13 +208,90 @@ export default function AdminQuestionBankPage() {
     void load();
   }, [load]);
 
+  const loadTasks = useCallback(async () => {
+    if (!authenticated) return;
+    try {
+      const next = (await listQuestionTasks()).data;
+      setTasks(next);
+      const latest = next[0];
+      if (
+        latest &&
+        (latest.status === 'completed' || latest.status === 'failed') &&
+        lastTerminalTaskRef.current !== `${latest.id}:${latest.updatedAt}`
+      ) {
+        lastTerminalTaskRef.current = `${latest.id}:${latest.updatedAt}`;
+        await load();
+      }
+    } catch (cause) {
+      if (cause instanceof AdminApiError && cause.status === 401) setAuthenticated(false);
+      else setError(cause instanceof Error ? cause.message : '任务状态加载失败');
+    }
+  }, [authenticated, load]);
+
+  const hasActiveTask = tasks.some(task => task.status === 'queued' || task.status === 'running');
+
+  useEffect(() => {
+    if (!authenticated) return;
+    void loadTasks();
+    const interval = window.setInterval(() => void loadTasks(), hasActiveTask ? 2_000 : 15_000);
+    return () => window.clearInterval(interval);
+  }, [authenticated, hasActiveTask, loadTasks]);
+
+  useEffect(() => {
+    if (!taskDetail || (taskDetail.status !== 'queued' && taskDetail.status !== 'running')) return;
+    const refresh = async () => {
+      try {
+        setTaskDetail((await getQuestionTask(taskDetail.id)).data);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : '任务详情加载失败');
+      }
+    };
+    const interval = window.setInterval(() => void refresh(), 2_000);
+    return () => window.clearInterval(interval);
+  }, [taskDetail]);
+
+  const openTaskDetail = async (task: QuestionTask) => {
+    setTaskDetail(task);
+    try {
+      setTaskDetail((await getQuestionTask(task.id)).data);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '任务详情加载失败');
+    }
+  };
+
+  const handleStartTask = async (type: QuestionTaskType, params: QuestionTaskParams) => {
+    setTaskStarting(true);
+    try {
+      const response =
+        type === 'generate'
+          ? await startQuestionTask('generate', params as GenerateQuestionTaskParams)
+          : await startQuestionTask('quality', params as QualityQuestionTaskParams);
+      setTaskLauncher(null);
+      setTaskDetail(response.data);
+      await loadTasks();
+    } finally {
+      setTaskStarting(false);
+    }
+  };
+
+  const handleStopTask = async () => {
+    if (!taskDetail) return;
+    setTaskStopping(true);
+    try {
+      await stopQuestionTask(taskDetail.id);
+      setTaskDetail((await getQuestionTask(taskDetail.id)).data);
+      await loadTasks();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '任务停止失败');
+    } finally {
+      setTaskStopping(false);
+    }
+  };
+
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil((result?.total ?? 0) / (result?.pageSize ?? filters.pageSize))),
     [filters.pageSize, result],
   );
-  const hasUnpublishedChanges =
-    !!result && result.meta.draftRevision !== result.meta.publishedRevision;
-
   const updateFilter = <Key extends keyof AdminQuestionFilters>(
     key: Key,
     value: AdminQuestionFilters[Key],
@@ -309,12 +351,6 @@ export default function AdminQuestionBankPage() {
     setPendingAction({ type: 'dismiss', questionId: question.id });
   };
 
-  const requestPublish = () => {
-    if (!result || !hasUnpublishedChanges) return;
-    setActionError(null);
-    setPendingAction({ type: 'publish', revision: result.meta.draftRevision });
-  };
-
   const closeActionDialog = () => {
     setPendingAction(null);
     setActionReason('');
@@ -331,8 +367,8 @@ export default function AdminQuestionBankPage() {
     ) {
       setActionError(
         pendingAction.type === 'dismiss'
-          ? '请填写忽略原因，方便后续审计。'
-          : '请填写禁用原因，方便后续审计和修复。',
+          ? '请填写忽略原因，方便后续追踪。'
+          : '请填写禁用原因，方便后续追踪和修复。',
       );
       return;
     }
@@ -345,8 +381,6 @@ export default function AdminQuestionBankPage() {
           pendingAction.enable,
           pendingAction.enable ? undefined : reason,
         );
-      } else if (pendingAction.type === 'publish') {
-        await publishAdminQuestionBank(pendingAction.revision);
       } else {
         await dismissAdminQuestionReports(pendingAction.questionId, reason);
       }
@@ -354,37 +388,6 @@ export default function AdminQuestionBankPage() {
       await load();
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : '操作失败，请稍后重试。');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleExport = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const exported = await exportAdminQuestions();
-      const url = URL.createObjectURL(
-        new Blob([JSON.stringify(exported.data, null, 2)], { type: 'application/json' }),
-      );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `questions-r${exported.meta.draftRevision}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '导出失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleAudit = async () => {
-    setSaving(true);
-    try {
-      setAudit((await listQuestionAudit()).data);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '审计记录加载失败');
     } finally {
       setSaving(false);
     }
@@ -413,33 +416,23 @@ export default function AdminQuestionBankPage() {
             </div>
             <h1 className="mt-2 font-serif text-3xl font-semibold text-text">题库资产后台</h1>
             <p className="mt-2 max-w-2xl text-sm text-text-dim">
-              处理用户反馈、修复或停用问题题目；发布修改后，只影响后续新建的作答。
+              手工修改与 AI 质检会自动同步给后续新建的作答，历史试卷继续保留原题面。
             </p>
           </div>
-          <div className="flex flex-col items-start gap-2 lg:items-end">
-            <p
-              className={`text-xs font-medium ${
-                hasUnpublishedChanges ? 'text-amber-500' : 'text-green'
-              }`}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="primary"
+              onClick={() => setTaskLauncher('generate')}
+              disabled={hasActiveTask || taskStarting}
             >
-              {hasUnpublishedChanges ? '有修改待发布，学生暂时看不到' : '学生题库已同步'}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={handleAudit} disabled={saving}>
-                <Clock3 size={15} /> 审计
-              </Button>
-              <Button onClick={handleExport} disabled={saving}>
-                <Download size={15} /> 导出
-              </Button>
-              <Button
-                onClick={requestPublish}
-                variant="primary"
-                disabled={!hasUnpublishedChanges || saving}
-              >
-                <UploadCloud size={15} />
-                {hasUnpublishedChanges ? '发布修改' : '无需发布'}
-              </Button>
-            </div>
+              <Sparkles size={15} /> 生成题库
+            </Button>
+            <Button
+              onClick={() => setTaskLauncher('quality')}
+              disabled={hasActiveTask || taskStarting}
+            >
+              <ShieldCheck size={15} /> 质检
+            </Button>
           </div>
         </header>
 
@@ -510,24 +503,28 @@ export default function AdminQuestionBankPage() {
           />
         </section>
 
+        {tasks[0] && (
+          <TaskProgressCard task={tasks[0]} onOpen={() => void openTaskDetail(tasks[0])} />
+        )}
+
         <Card className="mt-4 p-4">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-            <form className="flex min-w-0 flex-1 gap-2" onSubmit={handleSearch}>
-              <div className="relative min-w-0 flex-1">
-                <Search
-                  size={15}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim"
-                />
-                <input
-                  value={queryInput}
-                  onChange={event => setQueryInput(event.target.value)}
-                  placeholder="搜索题目 ID、知识点或题干"
-                  className="w-full rounded-xl border border-border bg-surface2 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent"
-                />
-              </div>
-              <Button type="submit">搜索</Button>
-            </form>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <form className="flex min-w-0 gap-2" onSubmit={handleSearch}>
+            <div className="relative min-w-0 flex-1">
+              <Search
+                size={15}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim"
+              />
+              <input
+                value={queryInput}
+                onChange={event => setQueryInput(event.target.value)}
+                placeholder="搜索题目 ID、知识点或题干"
+                className="w-full rounded-xl border border-border bg-surface2 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent"
+              />
+            </div>
+            <Button type="submit">搜索</Button>
+          </form>
+          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end">
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-3 md:grid-cols-4">
               <Select
                 label="年级"
                 value={filters.grade ?? ''}
@@ -570,6 +567,7 @@ export default function AdminQuestionBankPage() {
                 setFilters(DEFAULT_FILTERS);
               }}
               variant="ghost"
+              className="shrink-0 lg:mb-0.5"
             >
               <RefreshCw size={14} /> 重置
             </Button>
@@ -593,11 +591,7 @@ export default function AdminQuestionBankPage() {
           >
             <XCircle size={14} /> 批量禁用
           </Button>
-          {result && (
-            <span className="ml-auto text-xs text-text-dim">
-              最近发布：{formatDate(result.meta.publishedAt)}
-            </span>
-          )}
+          <span className="ml-auto text-xs text-text-dim">修改后自动同步至学生题库</span>
         </div>
 
         <Card className="mt-2 overflow-hidden">
@@ -637,9 +631,10 @@ export default function AdminQuestionBankPage() {
                           <Badge color={enabled ? '#2a9d8f' : '#f25f4c'}>
                             {enabled ? '已启用' : '已禁用'}
                           </Badge>
-                          <Badge>{question.type || 'fill_blank'}</Badge>
+                          <Badge>{TYPE_LABELS[question.type] ?? question.type}</Badge>
                           <span className="text-xs text-text-dim">
-                            {question.grade} · {question.difficulty}
+                            {question.grade} ·{' '}
+                            {DIFFICULTY_LABELS[question.difficulty] ?? question.difficulty}
                           </span>
                         </div>
                         {question.checkMessage && (
@@ -671,15 +666,14 @@ export default function AdminQuestionBankPage() {
                         >
                           <Edit3 size={16} />
                         </button>
-                        <a
-                          href={`/question/${encodeURIComponent(question.id)}`}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => setPreviewing(question)}
                           className="rounded-lg p-2 text-text-dim hover:bg-surface2"
                           aria-label={`预览 ${question.id}`}
                         >
                           <Eye size={16} />
-                        </a>
+                        </button>
                         {enabled && (
                           <button
                             type="button"
@@ -697,7 +691,17 @@ export default function AdminQuestionBankPage() {
               })}
           </div>
           <div className="hidden overflow-x-auto sm:block">
-            <table className="w-full min-w-[1050px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[1180px] table-fixed border-collapse text-left text-sm">
+              <colgroup>
+                <col className="w-12" />
+                <col className="w-[30%]" />
+                <col className="w-[17%]" />
+                <col className="w-28" />
+                <col className="w-28" />
+                <col className="w-56" />
+                <col className="w-40" />
+                <col className="w-24" />
+              </colgroup>
               <thead className="bg-surface2 text-xs text-text-dim">
                 <tr>
                   <th className="w-12 px-4 py-3">
@@ -714,13 +718,13 @@ export default function AdminQuestionBankPage() {
                       className="accent-accent"
                     />
                   </th>
-                  <th className="px-3 py-3">题目 / ID</th>
-                  <th className="px-3 py-3">知识点</th>
-                  <th className="px-3 py-3">年级学期</th>
-                  <th className="px-3 py-3">类型</th>
-                  <th className="px-3 py-3">状态</th>
-                  <th className="px-3 py-3">用户反馈</th>
-                  <th className="w-36 px-3 py-3">操作</th>
+                  <th className="whitespace-nowrap px-3 py-3">题目 / ID</th>
+                  <th className="whitespace-nowrap px-3 py-3">知识点</th>
+                  <th className="whitespace-nowrap px-3 py-3">年级学期</th>
+                  <th className="whitespace-nowrap px-3 py-3">题型难度</th>
+                  <th className="whitespace-nowrap px-3 py-3">状态</th>
+                  <th className="whitespace-nowrap px-3 py-3">用户反馈</th>
+                  <th className="whitespace-nowrap px-3 py-3">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -775,8 +779,10 @@ export default function AdminQuestionBankPage() {
                         </td>
                         <td className="px-3 py-3 align-top">
                           <div className="flex flex-col items-start gap-1">
-                            <Badge>{question.type || 'fill_blank'}</Badge>
-                            <span className="text-xs text-text-dim">{question.difficulty}</span>
+                            <Badge>{TYPE_LABELS[question.type] ?? question.type}</Badge>
+                            <span className="text-xs text-text-dim">
+                              {DIFFICULTY_LABELS[question.difficulty] ?? question.difficulty}
+                            </span>
                           </div>
                         </td>
                         <td className="max-w-xs px-3 py-3 align-top">
@@ -812,15 +818,14 @@ export default function AdminQuestionBankPage() {
                         </td>
                         <td className="px-3 py-3 align-top">
                           <div className="flex gap-1">
-                            <a
-                              href={`/question/${encodeURIComponent(question.id)}`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => setPreviewing(question)}
                               className="rounded-lg p-2 text-text-dim hover:bg-surface2 hover:text-accent"
-                              title="预览已发布版本"
+                              title="预览后台版本"
                             >
                               <Eye size={15} />
-                            </a>
+                            </button>
                             <button
                               type="button"
                               onClick={() => setEditing(question)}
@@ -880,11 +885,23 @@ export default function AdminQuestionBankPage() {
           onSave={handleSave}
         />
       )}
-      {audit && <AuditDrawer entries={audit} onClose={() => setAudit(null)} />}
+      <QuestionPreviewDialog question={previewing} onClose={() => setPreviewing(null)} />
+      <TaskLauncherDialog
+        type={taskLauncher}
+        busy={taskStarting}
+        onClose={() => setTaskLauncher(null)}
+        onStart={handleStartTask}
+      />
+      <TaskProgressDialog
+        task={taskDetail}
+        stopping={taskStopping}
+        onClose={() => setTaskDetail(null)}
+        onStop={handleStopTask}
+      />
       <Dialog
         open={reportQuestion !== null}
         title={reportQuestion ? `${reportQuestion.id} 的用户反馈` : '用户反馈'}
-        description="反馈绑定了学生当时看到的题面；编辑或停用后，需要发布修改才会对后续作答生效。"
+        description="反馈绑定了学生当时看到的题面；编辑或停用会自动影响后续作答，历史试卷与做题记录仍保留原题面。"
         onClose={() => setReportQuestion(null)}
         footer={
           reportQuestion ? (
@@ -946,22 +963,18 @@ export default function AdminQuestionBankPage() {
       <Dialog
         open={pendingAction !== null}
         title={
-          pendingAction?.type === 'publish'
-            ? '发布本次修改？'
-            : pendingAction?.type === 'dismiss'
-              ? '忽略这些反馈？'
-              : pendingAction?.enable
-                ? '启用所选题目？'
-                : '禁用所选题目？'
+          pendingAction?.type === 'dismiss'
+            ? '忽略这些反馈？'
+            : pendingAction?.enable
+              ? '启用所选题目？'
+              : '禁用所选题目？'
         }
         description={
-          pendingAction?.type === 'publish'
-            ? '发布后，新建的作答会使用本次修改；已有试卷和做题记录继续保留原题面。'
-            : pendingAction?.type === 'dismiss'
-              ? '确认题目无需修改后，可将这些反馈移出待处理列表，操作会保留审计记录。'
-              : pendingAction
-                ? `本次操作包含 ${pendingAction.ids.length} 道题，提交后会写入审计记录。`
-                : undefined
+          pendingAction?.type === 'dismiss'
+            ? '确认题目无需修改后，可将这些反馈移出待处理列表，操作会保留记录。'
+            : pendingAction
+              ? `本次操作包含 ${pendingAction.ids.length} 道题，提交后会自动同步至学生题库。`
+              : undefined
         }
         dismissible={!saving}
         onClose={closeActionDialog}
@@ -979,13 +992,11 @@ export default function AdminQuestionBankPage() {
             >
               {saving
                 ? '处理中…'
-                : pendingAction?.type === 'publish'
-                  ? '确认发布'
-                  : pendingAction?.type === 'dismiss'
-                    ? '确认忽略'
-                    : pendingAction?.enable
-                      ? '确认启用'
-                      : '确认禁用'}
+                : pendingAction?.type === 'dismiss'
+                  ? '确认忽略'
+                  : pendingAction?.enable
+                    ? '确认启用'
+                    : '确认禁用'}
             </Button>
           </>
         }

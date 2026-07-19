@@ -50,7 +50,7 @@
 
 价格验证应从结果交付而不是功能数量出发：`9.9 元`适合单次深度诊断，`29.9–39.9 元/月`适合云端错题本、同步和周报，`69–99 元/月`作为个性化计划、受限 AI 与复测证明的主力订阅；`199 元/月`以上需要人工审核或持续服务，纯软件不支持 `599–999 元/月`的价值承诺。
 
-本期先建设 D1 题库资产与管理后台，因为可追踪、可审核、可发布的内容供应链，是后续真实作业诊断、复测证明和规模化内容运营的基础。
+本期先建设 D1 题库资产与管理后台，因为可追踪、可质检、可持续生成的内容供应链，是后续真实作业诊断、复测证明和规模化内容运营的基础。
 
 ## 当前架构
 
@@ -65,7 +65,9 @@
     └── Hono Cloudflare Worker
         ├── /api/health
         ├── /api/questions 与 /api/admin/*
-        │   └── Cloudflare D1（编辑源、发布快照、历史版本、用户反馈、审计）
+        │   └── Cloudflare D1（题库、历史版本、用户反馈、AI 任务进度）
+        ├── Cloudflare Workflows
+        │   └── MiniMax 分批生成 / 质检 → D1
         └── /api/ai/chat → 可配置 AI 上游
 ```
 
@@ -73,6 +75,7 @@
 - 图谱与图表：`@xyflow/react`、Dagre、Recharts
 - 接口：Hono，运行于 Cloudflare Workers
 - 内容数据库：Cloudflare D1；后台编辑与学生端发布快照分离
+- 长任务：Cloudflare Workflows；生成与质检按小批次调用 MiniMax，任务进度持久化到 D1
 - 静态资源：由 Worker Assets 托管，未知前端路由回退到单页应用
 - 部署配置：`wrangler.jsonc` 顶层使用独立的 `suan-starter` 并可部署到 `*.workers.dev`，项目生产环境才使用 `suan` 与 `env.production` 中的 `suan.longye.site/*`
 
@@ -86,7 +89,7 @@
 
 - Cloudflare 账号
 - GitHub 或 GitLab 账号
-- DeepSeek API Key
+- 一个 OpenAI Chat 兼容的 AI API Key；项目生产环境当前使用 MiniMax
 - 一段至少 24 个字符、只用于本项目的随机 `ADMIN_SESSION_SECRET`
 
 D1 是线上题库的唯一数据源。首次部署需要在部署环境应用 `migrations/` 并执行一次幂等题库初始化，具体命令见下文；未初始化时题库接口会明确返回不可用，不再回退公开 JSON。
@@ -166,11 +169,12 @@ curl http://localhost:5173/api/health
 - `GET /api/admin/questions`：分页搜索题库，并按年级、学期、难度、题型、启停状态或待处理反馈筛选。
 - `PATCH /api/admin/questions/:id`：编辑题目内容、答案、元数据与质量状态。
 - `POST /api/admin/questions/batch-status`：批量启用或禁用，禁用时必须填写质量原因。
-- `POST /api/admin/questions/publish`：按草稿修订号发布不可见变更，避免并发覆盖。
-- `GET /api/admin/questions/export`、`GET /api/admin/question-audit`：导出当前草稿与查看审计记录。
 - `GET /api/admin/question-reports`、`POST /api/admin/question-reports/dismiss`：查看学生当时的题面或忽略无效反馈。
+- `POST /api/admin/question-tasks`：按后台所选参数启动“生成题库”或“AI 质检”Workflow。
+- `GET /api/admin/question-tasks`、`GET /api/admin/question-tasks/:id`：读取可恢复的任务进度与运行记录。
+- `POST /api/admin/question-tasks/:id/stop`：停止仍在排队或执行中的任务。
 
-后台编辑先写入 D1 `questions`，不会立即影响学生。只有显式发布后才会刷新 `published_questions`，并把完整题面写入历史版本；学生端始终读取已发布版本。考试与复习会话在创建时保存完整 `Question[]` 和题库版本，因此后续修题只影响新建作答，既有试卷、判题和做题记录继续使用原题面。
+后台编辑、启停和质检结果会在同一个 D1 事务中增量同步到 `published_questions`，无需人工发布。AI 生成的新题默认停用并标记为“等待质检”，只有质检合格后才会进入后续新建的学生作答；已有的人工停用题不会被 AI 自动恢复。每次变化都会把该题当时的完整题面写入 `published_question_versions`；考试与复习会话在创建时还会保存完整 `Question[]` 和题库版本，因此后续修题只影响新建作答，既有试卷、判题和做题记录继续使用原题面。
 
 ## 安全边界
 
@@ -181,7 +185,7 @@ curl http://localhost:5173/api/health
 - `.env.example` 默认使用 `https://api.deepseek.com` 与 `deepseek-v4-flash`。[DeepSeek 当前官方模型列表](https://api-docs.deepseek.com/api/list-models)中的 Flash 型号是 V4；不存在可用的 `deepseek-v3-flash` API 标识。
 - `AI_PROTOCOL` 支持 `openai-chat`、`openai-coding`、`anthropic`，默认 `openai-chat`。前者使用 Chat Completions，`openai-coding` 使用 Responses，`anthropic` 使用 Messages；Worker 会把不同上游流统一为浏览器现有的 SSE 契约。
 - 管理写接口同时校验短时签名会话和同源请求，Console 登录接口单独限流；当天 `MMDD` 是个人维护入口，不适合作为多管理员或公开运营环境的正式权限体系。
-- D1 只通过 Worker binding 和 prepared statements 访问。题库编辑、批量操作与发布都写入审计日志。
+- D1 只通过 Worker binding 和 prepared statements 访问。题库编辑、批量操作和 AI 任务批次都保留内部操作记录；后台不暴露冗余的导出、审计或人工发布入口。
 
 ## 常用命令
 

@@ -101,11 +101,12 @@ interface ReviewSource {
 | 管理列表 | GET | `/api/admin/questions` | 分页搜索、筛选草稿题库 |
 | 编辑题目 | PATCH | `/api/admin/questions/:id` | 编辑内容、答案、元数据与状态 |
 | 批量状态 | POST | `/api/admin/questions/batch-status` | 单次最多 100 道 |
-| 发布 | POST | `/api/admin/questions/publish` | 按期望修订发布 |
-| 导出 | GET | `/api/admin/questions/export` | 导出当前草稿 JSON |
-| 审计 | GET | `/api/admin/question-audit` | 最近操作记录 |
 | 查询反馈 | GET | `/api/admin/question-reports` | 单题待处理反馈与历史题面 |
 | 忽略反馈 | POST | `/api/admin/question-reports/dismiss` | 忽略无效反馈并记录原因 |
+| 启动 AI 任务 | POST | `/api/admin/question-tasks` | 启动生成或质检 Workflow |
+| 最近任务 | GET | `/api/admin/question-tasks` | 返回 D1 持久化任务列表 |
+| 任务详情 | GET | `/api/admin/question-tasks/:id` | 返回进度、统计、事件和运行态 |
+| 停止任务 | POST | `/api/admin/question-tasks/:id/stop` | 终止排队或运行中的任务 |
 
 **GET /api/questions 响应：**
 
@@ -120,6 +121,8 @@ interface ReviewSource {
 ```
 
 管理接口使用 HttpOnly 会话 Cookie；不接受 URL 参数、`X-Admin-Token` 或浏览器 `localStorage` 中的 Bearer Token。写接口同时校验同源。
+
+后台编辑、启停与 AI 质检结果会自动增量同步当前学生题库；生成结果先以禁用状态写入，质检合格后才会被学生端查询返回。任务刷新页面后可从 D1 恢复，Workflow 重试依赖批次幂等键避免重复写入。
 
 考试与复习 Session 直接持久化完整 `questions` 数组，判题和历史查看不会根据题目 ID 回读最新题库。反馈请求优先使用每道题附带的 `publishedRevision`，Worker 再从 `published_question_versions` 读取服务端历史题面，不能由浏览器伪造管理员看到的题目快照。
 

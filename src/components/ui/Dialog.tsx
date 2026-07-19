@@ -10,6 +10,7 @@ interface DialogProps {
   footer?: React.ReactNode;
   onClose: () => void;
   dismissible?: boolean;
+  panelClassName?: string;
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -29,6 +30,7 @@ export default function Dialog({
   footer,
   onClose,
   dismissible = true,
+  panelClassName = 'max-w-lg',
 }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -100,7 +102,7 @@ export default function Dialog({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
-        className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-bg shadow-2xl outline-none"
+        className={`relative w-full overflow-hidden rounded-2xl border border-border bg-bg shadow-2xl outline-none ${panelClassName}`}
       >
         <header className="flex items-start justify-between gap-5 border-b border-border px-5 py-4">
           <div>

@@ -1,6 +1,6 @@
 # 算道 · 小学数学平台现状总览
 
-> 文档版本：v2.1 · 2026-07-19
+> 文档版本：v3.0 · 2026-07-19
 > 状态：描述当前仓库已实现能力；生产环境已启用 D1 题库与 `/console` 资产后台。
 
 ## 一、产品定位
@@ -29,6 +29,7 @@
         ├── GET /api/health
         ├── GET /api/questions 与 /api/admin/*
         │   └── Cloudflare D1
+        ├── Cloudflare Workflows → MiniMax 生成 / 质检
         └── POST /api/ai/chat → 可配置 AI 上游
 ```
 
@@ -41,6 +42,7 @@
 | 图谱与图表 | `@xyflow/react`、Dagre、Recharts               |
 | 接口       | Hono 4、Cloudflare Workers                     |
 | 内容数据   | Cloudflare D1；非公开 JSON 仅用于首次初始化    |
+| 后台长任务 | Cloudflare Workflows；D1 保存任务进度与幂等批次 |
 | 静态资源   | Cloudflare Workers Static Assets、单页应用回退 |
 | 测试与检查 | Vitest、Workers 测试池、Biome、TypeScript      |
 
@@ -94,12 +96,12 @@
 - `GET /api/health`：报告 Worker 与 AI 配置状态。
 - `GET /api/questions`、`GET /api/questions/:id`：返回 D1 已发布题库及单题。
 - `POST /api/questions/:id/report`：把用户反馈与当时的题库版本、历史题面绑定。
-- `/api/admin/*`：短时签名会话、题库分页筛选、反馈处理、编辑、批量启停、发布、导出和审计。
+- `/api/admin/*`：短时签名会话、题库分页筛选、反馈处理、编辑、批量启停，以及可恢复的生成/质检任务。
 - `POST /api/ai/chat`：校验同源、输入大小与消息结构，由 Worker 构造系统提示词；OpenAI Chat 流原样转发，Responses 与 Anthropic 流会归一化为前端统一的 SSE 契约。
 
 生产 `API_KEY` 仅存于 Cloudflare Worker Secret。Worker 通过 `BASE_URL`、`MODEL` 与 `AI_PROTOCOL` 选择上游；协议支持 `openai-chat`、`openai-coding` 和 `anthropic`。AI 路由通过 Cloudflare Rate Limiting binding 限制调用频率，并对客户端隐藏上游错误正文。
 
-题库管理已经使用 D1 实现，并保留历史发布题面。考试与复习 Session 仍保存在浏览器本地，但会直接固化完整题目和发布版本，所以后续修题不会改写既有试卷或做题记录。当前用户账号、云端 Session、OCR 与周报接口仍未实现；相关文档中的这些部分仍是未来规划。
+题库管理已经使用 D1 实现，并保留历史题面。手工修改、启停和 AI 质检结果自动同步给后续新建作答；AI 生成题默认停用，质检合格后才启用。考试与复习 Session 仍保存在浏览器本地，但会直接固化完整题目和题库版本，所以后续修题不会改写既有试卷或做题记录。当前用户账号、云端 Session、OCR 与周报接口仍未实现；相关文档中的这些部分仍是未来规划。
 
 ## 七、主题与体验
 

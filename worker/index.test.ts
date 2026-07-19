@@ -11,6 +11,17 @@ const allowRateLimiter: RateLimit = {
 
 const testEnv = env as CloudflareBindings & { TEST_MIGRATIONS: D1Migration[] };
 
+function createWorkflowBinding(): CloudflareBindings['QUESTION_TASK_WORKFLOW'] {
+  const instance = {
+    status: async () => ({ status: 'running' }),
+    terminate: async () => undefined,
+  };
+  return {
+    create: async () => instance,
+    get: async () => instance,
+  } as unknown as CloudflareBindings['QUESTION_TASK_WORKFLOW'];
+}
+
 function createEnv(overrides: Partial<CloudflareBindings> = {}): CloudflareBindings {
   return {
     API_KEY: 'test-api-key',
@@ -22,6 +33,8 @@ function createEnv(overrides: Partial<CloudflareBindings> = {}): CloudflareBindi
     AI_RATE_LIMITER: allowRateLimiter,
     ADMIN_RATE_LIMITER: allowRateLimiter,
     REPORT_RATE_LIMITER: allowRateLimiter,
+    TASK_RATE_LIMITER: allowRateLimiter,
+    QUESTION_TASK_WORKFLOW: createWorkflowBinding(),
     ...overrides,
   };
 }
@@ -123,6 +136,9 @@ async function loginAdmin(app: ReturnType<typeof createApp>, bindings = createEn
 beforeEach(async () => {
   await applyD1Migrations(testEnv.CONTENT_DB, testEnv.TEST_MIGRATIONS);
   await testEnv.CONTENT_DB.batch([
+    testEnv.CONTENT_DB.prepare('DELETE FROM question_task_batches'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM question_task_events'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM question_tasks'),
     testEnv.CONTENT_DB.prepare('DELETE FROM question_audit_logs'),
     testEnv.CONTENT_DB.prepare('DELETE FROM question_reports'),
     testEnv.CONTENT_DB.prepare('DELETE FROM question_bank_releases'),
@@ -357,7 +373,7 @@ describe('Suan Hono Worker', () => {
     expect(rateLimited.headers.get('retry-after')).toBe('60');
   });
 
-  it('keeps edits in draft until an authenticated publish and records audit history', async () => {
+  it('automatically synchronizes authenticated edits and removes obsolete admin routes', async () => {
     await seedQuestionBank();
     const app = createApp({ now: () => NOW, randomUUID: () => CLIENT_ID });
     const bindings = createEnv();
@@ -384,7 +400,7 @@ describe('Suan Hono Worker', () => {
         method: 'PATCH',
         headers: { cookie, 'content-type': 'application/json' },
         body: JSON.stringify({
-          question: 'Updated draft question ____',
+          question: 'Updated question ____',
           enable: false,
           checkMessage: 'Answer needs review',
         }),
@@ -393,63 +409,21 @@ describe('Suan Hono Worker', () => {
     );
     expect(update.status).toBe(200);
     await expect(update.json()).resolves.toMatchObject({
-      question: { question: 'Updated draft question ____', enable: false },
-      meta: { draftRevision: 2, publishedRevision: 1 },
-    });
-
-    const stillPublished = await app.request('/api/questions/1-1-01', {}, bindings);
-    expect(stillPublished.status).toBe(200);
-    await expect(stillPublished.json()).resolves.toMatchObject({
-      data: { question: 'What is 1 + 1? ____', enable: true },
-    });
-
-    const stalePublish = await app.request(
-      '/api/admin/questions/publish',
-      {
-        method: 'POST',
-        headers: { cookie, 'content-type': 'application/json' },
-        body: JSON.stringify({ expectedDraftRevision: 1 }),
-      },
-      bindings,
-    );
-    expect(stalePublish.status).toBe(409);
-
-    const publish = await app.request(
-      '/api/admin/questions/publish',
-      {
-        method: 'POST',
-        headers: { cookie, 'content-type': 'application/json' },
-        body: JSON.stringify({ expectedDraftRevision: 2 }),
-      },
-      bindings,
-    );
-    expect(publish.status).toBe(200);
-    await expect(publish.json()).resolves.toMatchObject({
+      question: { question: 'Updated question ____', enable: false },
       meta: { draftRevision: 2, publishedRevision: 2 },
-      stats: { total: 1, enabled: 0, disabled: 1 },
     });
 
     const removedFromRuntime = await app.request('/api/questions/1-1-01', {}, bindings);
     expect(removedFromRuntime.status).toBe(404);
 
-    const audit = await app.request(
-      '/api/admin/question-audit?limit=10',
-      { headers: { cookie } },
-      bindings,
-    );
-    await expect(audit.json()).resolves.toMatchObject({
-      data: [{ action: 'publish' }, { action: 'update', questionId: '1-1-01' }],
-    });
-
-    const exported = await app.request(
+    for (const path of [
+      '/api/admin/questions/publish',
       '/api/admin/questions/export',
-      { headers: { cookie } },
-      bindings,
-    );
-    expect(exported.headers.get('content-disposition')).toContain('questions-r2.json');
-    await expect(exported.json()).resolves.toMatchObject({
-      data: [{ id: '1-1-01', enable: false }],
-    });
+      '/api/admin/question-audit',
+    ]) {
+      const removed = await app.request(path, { method: 'POST', headers: { cookie } }, bindings);
+      expect(removed.status).toBe(404);
+    }
   });
 
   it('supports bounded batch status changes and rejects invalid admin filters', async () => {
@@ -495,6 +469,145 @@ describe('Suan Hono Worker', () => {
       ok: true,
       updated: 2,
       meta: { draftRevision: 2 },
+    });
+  });
+
+  it('starts, lists, inspects, and cancels durable question tasks', async () => {
+    const terminate = vi.fn(async () => undefined);
+    const instance = {
+      status: vi.fn(async () => ({ status: 'running' })),
+      terminate,
+    };
+    const create = vi.fn(async () => instance);
+    const get = vi.fn(async () => instance);
+    const workflow = { create, get } as unknown as CloudflareBindings['QUESTION_TASK_WORKFLOW'];
+    const app = createApp({ now: () => NOW, randomUUID: () => CLIENT_ID });
+    const bindings = createEnv({ QUESTION_TASK_WORKFLOW: workflow });
+    const cookie = await loginAdmin(app, bindings);
+
+    const started = await app.request(
+      '/api/admin/question-tasks',
+      {
+        method: 'POST',
+        headers: {
+          cookie,
+          'content-type': 'application/json',
+          'x-suan-client-id': CLIENT_ID,
+        },
+        body: JSON.stringify({
+          type: 'generate',
+          params: {
+            grade: 1,
+            semester: '上',
+            kpId: '1-1',
+            typeMode: 'auto',
+            countPerKnowledgePoint: 3,
+          },
+        }),
+      },
+      bindings,
+    );
+    expect(started.status).toBe(201);
+    await expect(started.json()).resolves.toMatchObject({
+      data: { id: CLIENT_ID, type: 'generate', status: 'queued', stage: '等待生成' },
+    });
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: CLIENT_ID,
+        params: expect.objectContaining({ taskId: CLIENT_ID }),
+      }),
+    );
+
+    const duplicate = await app.request(
+      '/api/admin/question-tasks',
+      {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json', 'x-suan-client-id': CLIENT_ID },
+        body: JSON.stringify({ type: 'quality', params: { scope: 'all', limit: 20 } }),
+      },
+      bindings,
+    );
+    expect(duplicate.status).toBe(409);
+
+    const list = await app.request(
+      '/api/admin/question-tasks?limit=5',
+      { headers: { cookie } },
+      bindings,
+    );
+    await expect(list.json()).resolves.toMatchObject({
+      data: [{ id: CLIENT_ID, status: 'queued' }],
+    });
+
+    const detail = await app.request(
+      `/api/admin/question-tasks/${CLIENT_ID}`,
+      { headers: { cookie } },
+      bindings,
+    );
+    await expect(detail.json()).resolves.toMatchObject({
+      data: { id: CLIENT_ID, events: [{ message: '生成任务已排队' }] },
+      runtimeStatus: 'running',
+    });
+
+    const stopped = await app.request(
+      `/api/admin/question-tasks/${CLIENT_ID}/stop`,
+      { method: 'POST', headers: { cookie } },
+      bindings,
+    );
+    expect(stopped.status).toBe(200);
+    expect(terminate).toHaveBeenCalledOnce();
+    await expect(
+      testEnv.CONTENT_DB.prepare(`SELECT status, stage FROM question_tasks WHERE id = ?`)
+        .bind(CLIENT_ID)
+        .first(),
+    ).resolves.toEqual({ status: 'cancelled', stage: '管理员已停止' });
+  });
+
+  it('validates and rate limits question tasks and persists workflow startup failures', async () => {
+    const app = createApp({ now: () => NOW, randomUUID: () => CLIENT_ID });
+    const bindings = createEnv();
+    const cookie = await loginAdmin(app, bindings);
+    const taskRequest = {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json', 'x-suan-client-id': CLIENT_ID },
+      body: JSON.stringify({ type: 'quality', params: { scope: 'all', limit: 20 } }),
+    } satisfies RequestInit;
+
+    const invalid = await app.request(
+      '/api/admin/question-tasks',
+      {
+        ...taskRequest,
+        body: JSON.stringify({ type: 'quality', params: { scope: 'all', limit: 1 } }),
+      },
+      bindings,
+    );
+    expect(invalid.status).toBe(400);
+
+    const limited = await app.request(
+      '/api/admin/question-tasks',
+      taskRequest,
+      createEnv({ TASK_RATE_LIMITER: { limit: async () => ({ success: false }) } }),
+    );
+    expect(limited.status).toBe(429);
+
+    const failed = await app.request(
+      '/api/admin/question-tasks',
+      taskRequest,
+      createEnv({
+        QUESTION_TASK_WORKFLOW: {
+          create: async () => {
+            throw new Error('workflow unavailable');
+          },
+        } as unknown as CloudflareBindings['QUESTION_TASK_WORKFLOW'],
+      }),
+    );
+    expect(failed.status).toBe(503);
+    await expect(
+      testEnv.CONTENT_DB.prepare(`SELECT status, error_message FROM question_tasks WHERE id = ?`)
+        .bind(CLIENT_ID)
+        .first(),
+    ).resolves.toEqual({
+      status: 'failed',
+      error_message: 'Cloudflare Workflow 启动失败，请稍后重试',
     });
   });
 

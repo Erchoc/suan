@@ -227,7 +227,7 @@ export default function QuestionEditor({ question, saving, onClose, onSave }: Qu
               value={state.question}
               onChange={value => update('question', value)}
               multiline
-              hint="填空位置使用 ____，发布前请在学生端预览。"
+              hint="填空位置使用 ____；保存前可在后台预览当前版本。"
             />
           </div>
           {showBlanks && (
@@ -293,7 +293,7 @@ export default function QuestionEditor({ question, saving, onClose, onSave }: Qu
                 onChange={event => update('enable', event.target.checked)}
                 className="h-4 w-4 accent-accent"
               />
-              允许该题进入下一次发布
+              保存后允许学生在新建作答中使用
             </label>
             <div className="mt-3">
               <TextField
@@ -315,7 +315,7 @@ export default function QuestionEditor({ question, saving, onClose, onSave }: Qu
             </Button>
             <Button variant="primary" onClick={handleSubmit} disabled={saving}>
               <Save size={15} />
-              {saving ? '保存中…' : '保存草稿'}
+              {saving ? '保存中…' : '保存并同步'}
             </Button>
           </div>
         </footer>
