@@ -19,7 +19,7 @@ const CLIENT_ID_STORAGE_KEY = 'suan-ai-client-id';
 const CLIENT_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function getClientId(): string {
+export function getClientId(): string {
   try {
     const existing = localStorage.getItem(CLIENT_ID_STORAGE_KEY);
     if (existing && CLIENT_ID_PATTERN.test(existing)) return existing;

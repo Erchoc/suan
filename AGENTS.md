@@ -25,6 +25,8 @@ so you don't guess flags or invent subcommands.
 └── 同源 /api/*
     └── worker/index.ts 中的 Hono Worker
         ├── GET /api/health
+        ├── /api/auth/*
+        │   └── 手机号短信、微信网站扫码与 D1 用户会话
         ├── GET /api/questions 与 /api/admin/*
         │   └── Cloudflare D1 题库资产
         ├── QuestionTaskWorkflow
@@ -68,6 +70,7 @@ docs/                        已实现说明、规划和真实截图
 - 题库生成与质检由 `QuestionTaskWorkflow` 分批执行，进度、事件和幂等批次保存在 D1；不要退回普通请求或仅用 `waitUntil()` 承载长任务。
 - `src/data/knowledge-cards.json` 是知识卡数据。
 - 考试、复习和预习状态目前保存在浏览器本地，不要描述成云端持久化。
+- 家长身份与登录会话已存入 D1，但尚未包含孩子档案或学习记录同步；不要把登录能力描述成跨设备学习同步。
 - `worker-configuration.d.ts` 由 Wrangler 生成；修改绑定后运行 `pnpm cf-typegen`，禁止手改。
 
 ## AI 编程执行提示

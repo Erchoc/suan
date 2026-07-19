@@ -9,10 +9,12 @@ import {
   Moon,
   Sparkles,
   Sun,
+  UserRound,
 } from 'lucide-react';
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../../contexts/theme';
+import { useAuthAvailability } from '../../hooks/useAuthAvailability';
 import {
   applyThemeAppearance,
   getNextTheme,
@@ -96,7 +98,7 @@ function ComingSoonModal({ onClose }: { onClose: () => void }) {
 }
 
 // ─── Desktop top navigation ─────────────────────────────────
-function DesktopNav() {
+function DesktopNav({ showAccount }: { showAccount: boolean }) {
   const { pathname } = useLocation();
   const { theme, toggle } = useTheme();
   const [showComingSoon, setShowComingSoon] = useState(false);
@@ -149,6 +151,21 @@ function DesktopNav() {
           })}
         </div>
 
+        {showAccount && (
+          <Link
+            to="/account"
+            aria-label="家长账号"
+            className={`mr-1 flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm transition-colors ${
+              pathname === '/account'
+                ? 'bg-accent/15 text-accent'
+                : 'text-text-dim hover:bg-surface2 hover:text-text'
+            }`}
+          >
+            <UserRound size={16} />
+            <span className="hidden lg:inline">账号</span>
+          </Link>
+        )}
+
         <button
           type="button"
           onClick={toggle}
@@ -164,8 +181,9 @@ function DesktopNav() {
 }
 
 // ─── Mobile safe-area header ────────────────────────────────
-function MobileStatusBar({ isPWA }: { isPWA: boolean }) {
+function MobileStatusBar({ isPWA, showAccount }: { isPWA: boolean; showAccount: boolean }) {
   const { theme, toggle } = useTheme();
+  const { pathname } = useLocation();
   const touchPreviewActive = useRef(false);
 
   const restoreCommittedTheme = () => {
@@ -239,6 +257,17 @@ function MobileStatusBar({ isPWA }: { isPWA: boolean }) {
         <Link to="/" className="flex items-center gap-2 flex-1">
           <span className="font-brush text-xl text-accent">算道</span>
         </Link>
+        {showAccount && (
+          <Link
+            to="/account"
+            aria-label="家长账号"
+            className={`mr-1 flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+              pathname === '/account' ? 'bg-accent/15 text-accent' : 'text-text-dim'
+            }`}
+          >
+            <UserRound size={17} />
+          </Link>
+        )}
         <button
           type="button"
           onPointerDown={handlePointerDown}
@@ -305,12 +334,15 @@ export default function Nav() {
   const isMobile = useIsMobile();
   const isPWA = useIsPWA();
   const { pathname } = useLocation();
+  const showAccount = useAuthAvailability();
 
-  if (!isMobile) return <DesktopNav />;
-  if (pathname === '/console') return <MobileStatusBar isPWA={isPWA} />;
+  if (!isMobile) return <DesktopNav showAccount={showAccount} />;
+  if (pathname === '/console' || pathname === '/account') {
+    return <MobileStatusBar isPWA={isPWA} showAccount={showAccount} />;
+  }
   return (
     <>
-      <MobileStatusBar isPWA={isPWA} />
+      <MobileStatusBar isPWA={isPWA} showAccount={showAccount} />
       <BottomTabBar />
     </>
   );

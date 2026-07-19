@@ -32,6 +32,35 @@ import {
   listQuestionTasks,
   parseQuestionTaskRequest,
 } from './questionTasks';
+import {
+  SmsProviderError,
+  type SmsSendResult,
+  sendTencentSmsCode,
+  type TencentSmsConfig,
+} from './tencentSms';
+import {
+  activateSmsChallenge,
+  buildExpiredUserSessionCookie,
+  buildUserSessionCookie,
+  consumeOAuthState,
+  consumeSmsChallenge,
+  createOAuthState,
+  createSmsChallenge,
+  createUserSession,
+  digestSmsCode,
+  failSmsChallenge,
+  getSmsSendAllowance,
+  getUserSession,
+  maskPhone,
+  normalizeMainlandPhone,
+  resolvePhoneUser,
+  resolveWechatUser,
+  revokeUserSession,
+  SMS_CODE_TTL_SECONDS,
+  SMS_RESEND_SECONDS,
+  sanitizeReturnTo,
+  USER_SESSION_COOKIE,
+} from './userAuth';
 
 export { QuestionTaskWorkflow } from './questionTaskWorkflow';
 
@@ -58,7 +87,10 @@ type ApiErrorCode =
   | 'INTERNAL_ERROR'
   | 'UPSTREAM_ERROR'
   | 'AI_NOT_CONFIGURED'
-  | 'QUESTION_BANK_NOT_READY';
+  | 'QUESTION_BANK_NOT_READY'
+  | 'AUTH_NOT_CONFIGURED'
+  | 'INVALID_CODE'
+  | 'ACCOUNT_CONFLICT';
 
 type ChatRole = 'user' | 'assistant';
 
@@ -106,6 +138,32 @@ interface AppDependencies {
   fetch: typeof globalThis.fetch;
   now: () => number;
   randomUUID: () => string;
+  randomToken: () => string;
+  generateSmsCode: () => string;
+  sendSmsCode: (
+    config: TencentSmsConfig,
+    phone: string,
+    code: string,
+    nowMs: number,
+  ) => Promise<SmsSendResult>;
+}
+
+type OptionalAuthBindings = {
+  USER_AUTH_SECRET?: unknown;
+  TENCENT_SMS_SECRET_ID?: unknown;
+  TENCENT_SMS_SECRET_KEY?: unknown;
+  TENCENT_SMS_SDK_APP_ID?: unknown;
+  TENCENT_SMS_SIGN_NAME?: unknown;
+  TENCENT_SMS_TEMPLATE_ID?: unknown;
+  TENCENT_SMS_REGION?: unknown;
+  WECHAT_APP_ID?: unknown;
+  WECHAT_APP_SECRET?: unknown;
+};
+
+interface AuthProviderConfig {
+  userAuthSecret: string | null;
+  sms: TencentSmsConfig | null;
+  wechat: { appId: string; appSecret: string } | null;
 }
 
 class ApiError extends Error {
@@ -585,11 +643,84 @@ function formatSqlTimestamp(nowMs: number): string {
   return new Date(nowMs).toISOString();
 }
 
+function readOptionalSecret(value: unknown, minimumLength = 1): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized.length >= minimumLength ? normalized : null;
+}
+
+function getAuthProviderConfig(bindings: CloudflareBindings): AuthProviderConfig {
+  const optional = bindings as CloudflareBindings & OptionalAuthBindings;
+  const userAuthSecret = readOptionalSecret(optional.USER_AUTH_SECRET, 32);
+  const secretId = readOptionalSecret(optional.TENCENT_SMS_SECRET_ID);
+  const secretKey = readOptionalSecret(optional.TENCENT_SMS_SECRET_KEY);
+  const sdkAppId = readOptionalSecret(optional.TENCENT_SMS_SDK_APP_ID);
+  const signName = readOptionalSecret(optional.TENCENT_SMS_SIGN_NAME);
+  const templateId = readOptionalSecret(optional.TENCENT_SMS_TEMPLATE_ID);
+  const appId = readOptionalSecret(optional.WECHAT_APP_ID);
+  const appSecret = readOptionalSecret(optional.WECHAT_APP_SECRET);
+  return {
+    userAuthSecret,
+    sms:
+      secretId && secretKey && sdkAppId && signName && templateId
+        ? {
+            secretId,
+            secretKey,
+            sdkAppId,
+            signName,
+            templateId,
+            region: readOptionalSecret(optional.TENCENT_SMS_REGION) ?? undefined,
+          }
+        : null,
+    wechat: appId && appSecret ? { appId, appSecret } : null,
+  };
+}
+
+function createRandomSmsCode(): string {
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  return String(100_000 + (random[0] % 900_000));
+}
+
+function createRandomToken(): string {
+  const left = crypto.randomUUID().replaceAll('-', '');
+  const right = crypto.randomUUID().replaceAll('-', '');
+  return `${left}${right}`;
+}
+
+function readCurrentUserToken(c: Context<AppEnv>): string | undefined {
+  return readCookie(c.req.header('cookie'), USER_SESSION_COOKIE);
+}
+
+function parseWechatPayload(payload: unknown): {
+  accessToken: string;
+  openId: string;
+  unionId: string | null;
+} | null {
+  if (!isRecord(payload)) return null;
+  if (typeof payload.access_token !== 'string' || typeof payload.openid !== 'string') return null;
+  return {
+    accessToken: payload.access_token,
+    openId: payload.openid,
+    unionId: typeof payload.unionid === 'string' && payload.unionid ? payload.unionid : null,
+  };
+}
+
+function accountRedirect(requestUrl: string, code: 'wechat_failed' | 'wechat_conflict'): string {
+  const target = new URL('/account', requestUrl);
+  target.searchParams.set('error', code);
+  return target.toString();
+}
+
 export function createApp(overrides: Partial<AppDependencies> = {}) {
   const dependencies: AppDependencies = {
     fetch: (input, init) => globalThis.fetch(input, init),
     now: Date.now,
     randomUUID: () => crypto.randomUUID(),
+    randomToken: createRandomToken,
+    generateSmsCode: createRandomSmsCode,
+    sendSmsCode: (config, phone, code, nowMs) =>
+      sendTencentSmsCode(globalThis.fetch, config, phone, code, nowMs),
     ...overrides,
   };
   const app = new Hono<AppEnv>();
@@ -624,6 +755,253 @@ export function createApp(overrides: Partial<AppDependencies> = {}) {
       contentDatabase: c.env.CONTENT_DB ? 'configured' : 'unconfigured',
     }),
   );
+
+  app.get('/api/auth/config', c => {
+    const config = getAuthProviderConfig(c.env);
+    return c.json({
+      methods: {
+        phone: Boolean(config.userAuthSecret && config.sms),
+        wechat: Boolean(config.wechat),
+      },
+    });
+  });
+
+  app.get('/api/auth/session', async c => {
+    const session = await getUserSession(
+      c.env.CONTENT_DB,
+      readCurrentUserToken(c),
+      dependencies.now(),
+    );
+    return c.json({ authenticated: Boolean(session), user: session?.user ?? null });
+  });
+
+  app.delete('/api/auth/session', async c => {
+    assertSameOrigin(c);
+    await revokeUserSession(c.env.CONTENT_DB, readCurrentUserToken(c), dependencies.now());
+    c.header('set-cookie', buildExpiredUserSessionCookie(new URL(c.req.url).protocol === 'https:'));
+    return c.json({ authenticated: false, user: null });
+  });
+
+  app.post('/api/auth/sms/send', async c => {
+    assertSameOrigin(c);
+    assertJsonRequest(c);
+    const rateLimit = await c.env.AUTH_RATE_LIMITER.limit({
+      key: getRateLimitKey(c, 'auth-sms-send'),
+    });
+    if (!rateLimit.success) {
+      c.header('retry-after', '60');
+      throw new ApiError(429, 'RATE_LIMITED', '验证码发送过于频繁，请稍后再试');
+    }
+    const config = getAuthProviderConfig(c.env);
+    if (!config.userAuthSecret || !config.sms) {
+      throw new ApiError(503, 'AUTH_NOT_CONFIGURED', '手机号登录服务尚未配置');
+    }
+    const body = await readJsonWithLimit(c.req.raw);
+    if (!isRecord(body)) throw new ApiError(400, 'BAD_REQUEST', '请求体必须是对象');
+    const rawPhone = readBoundedString(body, 'phone', 24);
+    const phone = normalizeMainlandPhone(rawPhone);
+    if (!phone) throw new ApiError(400, 'BAD_REQUEST', '请输入正确的中国大陆手机号');
+
+    const allowance = await getSmsSendAllowance(c.env.CONTENT_DB, phone, dependencies.now());
+    if (!allowance.allowed) {
+      c.header('retry-after', String(allowance.retryAfterSeconds));
+      throw new ApiError(429, 'RATE_LIMITED', '验证码发送过于频繁，请稍后再试');
+    }
+
+    const challengeId = dependencies.randomUUID();
+    const code = dependencies.generateSmsCode();
+    const digest = await digestSmsCode(config.userAuthSecret, challengeId, phone, code);
+    await createSmsChallenge(c.env.CONTENT_DB, challengeId, phone, digest, dependencies.now());
+    try {
+      const sent = await dependencies.sendSmsCode(config.sms, phone, code, dependencies.now());
+      await activateSmsChallenge(c.env.CONTENT_DB, challengeId, sent.messageId, dependencies.now());
+    } catch (error) {
+      await failSmsChallenge(c.env.CONTENT_DB, challengeId, dependencies.now());
+      console.error({
+        event: 'sms_send_failed',
+        traceId: c.get('traceId'),
+        reason: error instanceof SmsProviderError ? error.reason : 'unknown',
+      });
+      throw new ApiError(502, 'UPSTREAM_ERROR', '短信暂时发送失败，请稍后再试');
+    }
+    return c.json({
+      data: {
+        challengeId,
+        phone: maskPhone(phone),
+        expiresIn: SMS_CODE_TTL_SECONDS,
+        resendAfter: SMS_RESEND_SECONDS,
+      },
+    });
+  });
+
+  app.post('/api/auth/sms/verify', async c => {
+    assertSameOrigin(c);
+    assertJsonRequest(c);
+    const rateLimit = await c.env.AUTH_RATE_LIMITER.limit({
+      key: getRateLimitKey(c, 'auth-sms-verify'),
+    });
+    if (!rateLimit.success) {
+      c.header('retry-after', '60');
+      throw new ApiError(429, 'RATE_LIMITED', '验证尝试过于频繁，请稍后再试');
+    }
+    const config = getAuthProviderConfig(c.env);
+    if (!config.userAuthSecret || !config.sms) {
+      throw new ApiError(503, 'AUTH_NOT_CONFIGURED', '手机号登录服务尚未配置');
+    }
+    const body = await readJsonWithLimit(c.req.raw);
+    if (!isRecord(body)) throw new ApiError(400, 'BAD_REQUEST', '请求体必须是对象');
+    const rawPhone = readBoundedString(body, 'phone', 24);
+    const phone = normalizeMainlandPhone(rawPhone);
+    const challengeId = readBoundedString(body, 'challengeId', 80);
+    const code = readBoundedString(body, 'code', 6);
+    if (!phone || !CLIENT_ID_PATTERN.test(challengeId) || !/^\d{6}$/u.test(code)) {
+      throw new ApiError(400, 'BAD_REQUEST', '手机号或验证码格式不正确');
+    }
+    const consumed = await consumeSmsChallenge(
+      c.env.CONTENT_DB,
+      challengeId,
+      phone,
+      code,
+      config.userAuthSecret,
+      dependencies.now(),
+    );
+    if (!consumed.ok) {
+      throw new ApiError(401, 'INVALID_CODE', '验证码不正确或已失效');
+    }
+    const userId = await resolvePhoneUser(
+      c.env.CONTENT_DB,
+      phone,
+      dependencies.randomUUID(),
+      dependencies.randomUUID(),
+      dependencies.now(),
+    );
+    const token = dependencies.randomToken();
+    await createUserSession(
+      c.env.CONTENT_DB,
+      userId,
+      dependencies.randomUUID(),
+      token,
+      dependencies.now(),
+    );
+    const session = await getUserSession(c.env.CONTENT_DB, token, dependencies.now());
+    c.header('set-cookie', buildUserSessionCookie(token, new URL(c.req.url).protocol === 'https:'));
+    return c.json({ authenticated: true, user: session?.user ?? null });
+  });
+
+  app.get('/api/auth/wechat/start', async c => {
+    const config = getAuthProviderConfig(c.env);
+    if (!config.wechat) {
+      throw new ApiError(503, 'AUTH_NOT_CONFIGURED', '微信登录服务尚未配置');
+    }
+    const currentSession = await getUserSession(
+      c.env.CONTENT_DB,
+      readCurrentUserToken(c),
+      dependencies.now(),
+    );
+    const rawState = dependencies.randomToken();
+    await createOAuthState(
+      c.env.CONTENT_DB,
+      dependencies.randomUUID(),
+      rawState,
+      sanitizeReturnTo(c.req.query('returnTo')),
+      currentSession?.user.id ?? null,
+      dependencies.now(),
+    );
+    const callbackUrl = new URL('/api/auth/wechat/callback', c.req.url).toString();
+    const authorizationUrl = new URL('https://open.weixin.qq.com/connect/qrconnect');
+    authorizationUrl.searchParams.set('appid', config.wechat.appId);
+    authorizationUrl.searchParams.set('redirect_uri', callbackUrl);
+    authorizationUrl.searchParams.set('response_type', 'code');
+    authorizationUrl.searchParams.set('scope', 'snsapi_login');
+    authorizationUrl.searchParams.set('state', rawState);
+    authorizationUrl.hash = 'wechat_redirect';
+    c.header('cache-control', 'no-store');
+    return c.redirect(authorizationUrl.toString(), 302);
+  });
+
+  app.get('/api/auth/wechat/callback', async c => {
+    const config = getAuthProviderConfig(c.env);
+    if (!config.wechat) return c.redirect(accountRedirect(c.req.url, 'wechat_failed'), 302);
+    const code = c.req.query('code')?.trim() ?? '';
+    const rawState = c.req.query('state')?.trim() ?? '';
+    if (!code || code.length > 256 || !rawState) {
+      return c.redirect(accountRedirect(c.req.url, 'wechat_failed'), 302);
+    }
+    const oauthState = await consumeOAuthState(c.env.CONTENT_DB, rawState, dependencies.now());
+    if (!oauthState) return c.redirect(accountRedirect(c.req.url, 'wechat_failed'), 302);
+
+    try {
+      const tokenUrl = new URL('https://api.weixin.qq.com/sns/oauth2/access_token');
+      tokenUrl.searchParams.set('appid', config.wechat.appId);
+      tokenUrl.searchParams.set('secret', config.wechat.appSecret);
+      tokenUrl.searchParams.set('code', code);
+      tokenUrl.searchParams.set('grant_type', 'authorization_code');
+      const tokenResponse = await dependencies.fetch(tokenUrl, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      });
+      const tokenPayload = parseWechatPayload(await tokenResponse.json());
+      if (!tokenResponse.ok || !tokenPayload) throw new Error('Invalid WeChat token response');
+
+      let displayName: string | undefined;
+      let avatarUrl: string | undefined;
+      const profileUrl = new URL('https://api.weixin.qq.com/sns/userinfo');
+      profileUrl.searchParams.set('access_token', tokenPayload.accessToken);
+      profileUrl.searchParams.set('openid', tokenPayload.openId);
+      profileUrl.searchParams.set('lang', 'zh_CN');
+      const profileResponse = await dependencies.fetch(profileUrl, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (profileResponse.ok) {
+        const profile = (await profileResponse.json()) as unknown;
+        if (isRecord(profile)) {
+          if (typeof profile.nickname === 'string') displayName = profile.nickname.slice(0, 80);
+          if (typeof profile.headimgurl === 'string') avatarUrl = profile.headimgurl.slice(0, 500);
+        }
+      }
+
+      const resolved = await resolveWechatUser(
+        c.env.CONTENT_DB,
+        {
+          subject: tokenPayload.unionId
+            ? `unionid:${tokenPayload.unionId}`
+            : `openid:${tokenPayload.openId}`,
+          displayName,
+          avatarUrl,
+        },
+        oauthState.currentUserId,
+        dependencies.randomUUID(),
+        dependencies.randomUUID(),
+        dependencies.now(),
+      );
+      if (resolved.conflict) {
+        return c.redirect(accountRedirect(c.req.url, 'wechat_conflict'), 302);
+      }
+      const token = dependencies.randomToken();
+      await createUserSession(
+        c.env.CONTENT_DB,
+        resolved.userId,
+        dependencies.randomUUID(),
+        token,
+        dependencies.now(),
+      );
+      c.header(
+        'set-cookie',
+        buildUserSessionCookie(token, new URL(c.req.url).protocol === 'https:'),
+      );
+      const redirectTarget = new URL(oauthState.returnTo, c.req.url);
+      redirectTarget.searchParams.set('login', 'wechat');
+      return c.redirect(redirectTarget.toString(), 302);
+    } catch (error) {
+      console.error({
+        event: 'wechat_login_failed',
+        traceId: c.get('traceId'),
+        error: error instanceof Error ? error.name : 'UnknownError',
+      });
+      return c.redirect(accountRedirect(c.req.url, 'wechat_failed'), 302);
+    }
+  });
 
   app.get('/api/questions', async c => {
     const result = await listPublishedQuestions(c.env.CONTENT_DB);

@@ -11,6 +11,17 @@ const allowRateLimiter: RateLimit = {
 
 const testEnv = env as CloudflareBindings & { TEST_MIGRATIONS: D1Migration[] };
 
+type AuthTestBindings = Partial<CloudflareBindings> & {
+  USER_AUTH_SECRET?: string;
+  TENCENT_SMS_SECRET_ID?: string;
+  TENCENT_SMS_SECRET_KEY?: string;
+  TENCENT_SMS_SDK_APP_ID?: string;
+  TENCENT_SMS_SIGN_NAME?: string;
+  TENCENT_SMS_TEMPLATE_ID?: string;
+  WECHAT_APP_ID?: string;
+  WECHAT_APP_SECRET?: string;
+};
+
 function createWorkflowBinding(): CloudflareBindings['QUESTION_TASK_WORKFLOW'] {
   const instance = {
     status: async () => ({ status: 'running' }),
@@ -22,7 +33,7 @@ function createWorkflowBinding(): CloudflareBindings['QUESTION_TASK_WORKFLOW'] {
   } as unknown as CloudflareBindings['QUESTION_TASK_WORKFLOW'];
 }
 
-function createEnv(overrides: Partial<CloudflareBindings> = {}): CloudflareBindings {
+function createEnv(overrides: AuthTestBindings = {}): CloudflareBindings {
   return {
     API_KEY: 'test-api-key',
     BASE_URL: 'https://api.deepseek.com',
@@ -34,9 +45,21 @@ function createEnv(overrides: Partial<CloudflareBindings> = {}): CloudflareBindi
     ADMIN_RATE_LIMITER: allowRateLimiter,
     REPORT_RATE_LIMITER: allowRateLimiter,
     TASK_RATE_LIMITER: allowRateLimiter,
+    AUTH_RATE_LIMITER: allowRateLimiter,
     QUESTION_TASK_WORKFLOW: createWorkflowBinding(),
     ...overrides,
-  };
+  } as CloudflareBindings;
+}
+
+function createPhoneAuthEnv(): CloudflareBindings {
+  return createEnv({
+    USER_AUTH_SECRET: 'test-user-auth-secret-that-is-long-enough',
+    TENCENT_SMS_SECRET_ID: 'secret-id',
+    TENCENT_SMS_SECRET_KEY: 'secret-key',
+    TENCENT_SMS_SDK_APP_ID: '1400000000',
+    TENCENT_SMS_SIGN_NAME: '算道',
+    TENCENT_SMS_TEMPLATE_ID: '123456',
+  });
 }
 
 function sseResponse(chunks: string[]): Response {
@@ -136,6 +159,11 @@ async function loginAdmin(app: ReturnType<typeof createApp>, bindings = createEn
 beforeEach(async () => {
   await applyD1Migrations(testEnv.CONTENT_DB, testEnv.TEST_MIGRATIONS);
   await testEnv.CONTENT_DB.batch([
+    testEnv.CONTENT_DB.prepare('DELETE FROM user_sessions'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM auth_oauth_states'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM auth_sms_codes'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM user_identities'),
+    testEnv.CONTENT_DB.prepare('DELETE FROM users'),
     testEnv.CONTENT_DB.prepare('DELETE FROM question_task_batches'),
     testEnv.CONTENT_DB.prepare('DELETE FROM question_task_events'),
     testEnv.CONTENT_DB.prepare('DELETE FROM question_tasks'),
@@ -186,6 +214,127 @@ describe('Suan Hono Worker', () => {
       error: { code: 'NOT_FOUND', message: '接口不存在' },
       traceId: CLIENT_ID,
     });
+  });
+
+  it('reports only authentication methods with complete provider configuration', async () => {
+    const app = createApp({ randomUUID: () => CLIENT_ID });
+    const unconfigured = await app.request('/api/auth/config', {}, createEnv());
+    await expect(unconfigured.json()).resolves.toEqual({
+      methods: { phone: false, wechat: false },
+    });
+
+    const configured = await app.request(
+      '/api/auth/config',
+      {},
+      createEnv({
+        USER_AUTH_SECRET: 'test-user-auth-secret-that-is-long-enough',
+        TENCENT_SMS_SECRET_ID: 'secret-id',
+        TENCENT_SMS_SECRET_KEY: 'secret-key',
+        TENCENT_SMS_SDK_APP_ID: '1400000000',
+        TENCENT_SMS_SIGN_NAME: '算道',
+        TENCENT_SMS_TEMPLATE_ID: '123456',
+        WECHAT_APP_ID: 'wx-app-id',
+        WECHAT_APP_SECRET: 'wx-app-secret',
+      }),
+    );
+    await expect(configured.json()).resolves.toEqual({ methods: { phone: true, wechat: true } });
+  });
+
+  it('completes phone verification without storing the raw code', async () => {
+    const app = createApp({
+      now: () => NOW,
+      randomUUID: () => CLIENT_ID,
+      randomToken: () => 't'.repeat(64),
+      generateSmsCode: () => '123456',
+      sendSmsCode: async () => ({ messageId: 'sms-message-1' }),
+    });
+    const bindings = createPhoneAuthEnv();
+    const sent = await app.request(
+      '/api/auth/sms/send',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-suan-client-id': CLIENT_ID },
+        body: JSON.stringify({ phone: '13800138000' }),
+      },
+      bindings,
+    );
+    expect(sent.status).toBe(200);
+    await expect(sent.json()).resolves.toMatchObject({
+      data: { challengeId: CLIENT_ID, phone: '+86138****8000', expiresIn: 300 },
+    });
+    const stored = await testEnv.CONTENT_DB.prepare(
+      'SELECT code_digest, provider_message_id FROM auth_sms_codes WHERE id = ?',
+    )
+      .bind(CLIENT_ID)
+      .first<{ code_digest: string; provider_message_id: string }>();
+    expect(stored?.code_digest).not.toContain('123456');
+    expect(stored?.provider_message_id).toBe('sms-message-1');
+
+    const verified = await app.request(
+      '/api/auth/sms/verify',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-suan-client-id': CLIENT_ID },
+        body: JSON.stringify({
+          phone: '13800138000',
+          challengeId: CLIENT_ID,
+          code: '123456',
+        }),
+      },
+      bindings,
+    );
+    expect(verified.status).toBe(200);
+    expect(verified.headers.get('set-cookie')).toContain('HttpOnly');
+    await expect(verified.json()).resolves.toMatchObject({
+      authenticated: true,
+      user: { identities: [{ provider: 'phone', label: '手机尾号 8000' }] },
+    });
+
+    const cookie = verified.headers.get('set-cookie')?.split(';')[0] ?? '';
+    const session = await app.request('/api/auth/session', { headers: { cookie } }, bindings);
+    await expect(session.json()).resolves.toMatchObject({ authenticated: true });
+  });
+
+  it('creates a WeChat session through a one-time OAuth state', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/access_token')) {
+        return Response.json({
+          access_token: 'wechat-token',
+          openid: 'openid-1',
+          unionid: 'union-1',
+        });
+      }
+      return Response.json({ nickname: '微信家长', headimgurl: 'https://example.com/avatar.png' });
+    });
+    const app = createApp({
+      fetch: fetcher,
+      now: () => NOW,
+      randomUUID: () => CLIENT_ID,
+      randomToken: () => 's'.repeat(64),
+    });
+    const bindings = createEnv({
+      WECHAT_APP_ID: 'wx-app-id',
+      WECHAT_APP_SECRET: 'wx-app-secret',
+    });
+    const started = await app.request('/api/auth/wechat/start?returnTo=/account', {}, bindings);
+    expect(started.status).toBe(302);
+    const authorizationUrl = new URL(started.headers.get('location') ?? '');
+    expect(authorizationUrl.hostname).toBe('open.weixin.qq.com');
+    expect(authorizationUrl.searchParams.get('scope')).toBe('snsapi_login');
+
+    const callback = await app.request(
+      `/api/auth/wechat/callback?code=wechat-code&state=${authorizationUrl.searchParams.get('state')}`,
+      {},
+      bindings,
+    );
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get('location')).toContain('/account?login=wechat');
+    expect(callback.headers.get('set-cookie')).toContain('HttpOnly');
+    const identity = await testEnv.CONTENT_DB.prepare(
+      "SELECT provider_subject, display_name FROM user_identities WHERE provider = 'wechat'",
+    ).first<{ provider_subject: string; display_name: string }>();
+    expect(identity).toEqual({ provider_subject: 'unionid:union-1', display_name: '微信家长' });
   });
 
   it('reports an uninitialized question bank with a structured fallback signal', async () => {

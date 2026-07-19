@@ -2,7 +2,7 @@
 
 > 版本：v2.0 · 2026-07-19
 > 目标读者：后端工程师
-> 状态：题库 D1、管理接口和管理员认证已实现；学习 Session、收藏聚合与用户账号仍是未来规划。
+> 状态：题库 D1、管理接口、管理员认证与家长身份登录已实现；学习 Session 云端化和收藏聚合仍是未来规划。
 
 ---
 
@@ -10,7 +10,7 @@
 
 **题库（当前）**：前端只通过同源 `/api/questions` 读取 D1 已发布版本。后台编辑源与学生发布快照分离，浏览器不再携带静态题库副本。
 
-**学习状态（当前）**：考试、复习和预习仍通过 Zustand persist 写入 `localStorage`，尚无用户账号或跨设备同步。
+**身份与学习状态（当前）**：家长可通过手机号或微信建立服务端身份与会话；考试、复习和预习仍通过 Zustand persist 写入 `localStorage`，尚无跨设备同步。
 
 **学习状态云端化（后续）**：保留现有 store 调用签名，把持久化实现切换为同源 HTTP，同时保留离线缓存。当前不存在全局 `DATA_MODE` 开关。
 
@@ -128,7 +128,25 @@ interface ReviewSource {
 
 ---
 
-### 3.2 摸底考试 Session
+### 3.2 家长身份与会话
+
+| 接口 | 方法 | 路径 | 说明 |
+| --- | --- | --- | --- |
+| 登录能力 | GET | `/api/auth/config` | 返回 `phone` / `wechat` 是否配置完整 |
+| 发送验证码 | POST | `/api/auth/sms/send` | 大陆手机号；返回 challengeId、脱敏号码与冷却时间 |
+| 校验验证码 | POST | `/api/auth/sms/verify` | 一次性消费 challenge 并签发用户会话 |
+| 当前会话 | GET | `/api/auth/session` | 返回脱敏用户与已绑定身份 |
+| 退出会话 | DELETE | `/api/auth/session` | 撤销 D1 会话并清除 Cookie |
+| 微信授权 | GET | `/api/auth/wechat/start` | 创建一次性 state 并跳转微信官方扫码页 |
+| 微信回调 | GET | `/api/auth/wechat/callback` | 消费 state、创建/绑定微信身份并签发会话 |
+
+`users` 是稳定账号主体，`user_identities` 保存手机号或微信提供方身份；手机号登录后可以显式扫码把微信绑定到当前主体。短信 challenge 只存 HMAC 摘要，用户会话只存随机令牌 SHA-256 摘要。Cookie 使用 HttpOnly、SameSite=Lax，并在 HTTPS 环境增加 Secure。
+
+本期登录不改变本地学习 store，也不自动上传历史做题记录。孩子档案、监护关系、学习数据同步与冲突解决是后续独立契约。
+
+---
+
+### 3.3 摸底考试 Session
 
 | 接口         | 方法  | 路径                               | 说明           |
 | ------------ | ----- | ---------------------------------- | -------------- |
@@ -244,7 +262,7 @@ loadQuestion(questionId); // D1 单题 API，优先复用进程内缓存
 - 登录保护：Cloudflare Rate Limiting binding；边缘优先使用连接 IP，本地回退客户端 UUID。
 - Secret：`ADMIN_SESSION_SECRET` 至少 24 个字符，仅用于签名后台会话，并保存在 Worker Secret。
 
-当前是单管理员模型。未来接入家长/孩子账号时应采用独立身份体系，不能复用题库管理员会话。
+当前是单管理员模型。家长账号已经使用完全独立的 D1 身份、会话 Cookie 与认证限流器，不能复用题库管理员会话。
 
 ---
 

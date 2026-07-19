@@ -55,6 +55,14 @@
         "limit": 4,
         "period": 60
       }
+    },
+    {
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "2026071805",
+      "simple": {
+        "limit": 8,
+        "period": 60
+      }
     }
   ],
   "assets": {
@@ -132,6 +140,14 @@
           "namespace_id": "2026071904",
           "simple": {
             "limit": 4,
+            "period": 60
+          }
+        },
+        {
+          "name": "AUTH_RATE_LIMITER",
+          "namespace_id": "2026071905",
+          "simple": {
+            "limit": 8,
             "period": 60
           }
         }

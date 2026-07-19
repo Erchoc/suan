@@ -1,7 +1,16 @@
 import { motion } from 'framer-motion';
-import { Brain, ChevronRight, FlaskConical, GitFork, Star, TrendingUp } from 'lucide-react';
+import {
+  Brain,
+  ChevronRight,
+  FlaskConical,
+  GitFork,
+  Star,
+  TrendingUp,
+  UserRound,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { graphData, kpMap } from '../../data/kpIndex';
+import { useAuthAvailability } from '../../hooks/useAuthAvailability';
 
 const features = [
   {
@@ -22,6 +31,7 @@ const features = [
 ];
 
 export default function Home() {
+  const showAccount = useAuthAvailability();
   return (
     <div className="min-h-screen pt-14 flex flex-col relative">
       {/* Warm gradient atmosphere with subtly animated light spots. */}
@@ -74,6 +84,14 @@ export default function Home() {
               浏览知识图谱
             </Link>
           </div>
+          {showAccount && (
+            <Link
+              to="/account"
+              className="mt-5 inline-flex items-center gap-1 text-sm text-text-dim transition-colors hover:text-accent"
+            >
+              <UserRound size={15} /> 家长登录
+            </Link>
+          )}
         </motion.div>
       </section>
 
@@ -101,7 +119,7 @@ export default function Home() {
       {/* Bridge knowledge point showcase. */}
       <section className="px-4 sm:px-6 py-12 sm:py-16 max-w-5xl mx-auto w-full">
         <h2 className="font-serif text-xl sm:text-2xl font-semibold mb-2 text-center">
-          小升初衔接桥头堡
+          小升初桥头堡衔接
         </h2>
         <p className="text-text-dim text-center mb-6 sm:mb-8 text-sm">
           四大关键节点，打通小学到初中的知识断层
