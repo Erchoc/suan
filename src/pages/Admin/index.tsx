@@ -8,7 +8,6 @@ import {
   Edit3,
   Eye,
   KeyRound,
-  LogOut,
   RefreshCw,
   Search,
   UploadCloud,
@@ -19,6 +18,8 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import Dialog from '../../components/ui/Dialog';
+import Select, { type SelectOption } from '../../components/ui/Select';
 import {
   AdminApiError,
   type AdminQuestionFilters,
@@ -29,7 +30,6 @@ import {
   listAdminQuestions,
   listQuestionAudit,
   loginAdmin,
-  logoutAdmin,
   publishAdminQuestionBank,
   type QuestionAuditEntry,
   updateAdminQuestion,
@@ -38,6 +38,39 @@ import type { Question } from '../../types';
 import QuestionEditor from './QuestionEditor';
 
 const DEFAULT_FILTERS: AdminQuestionFilters = { page: 1, pageSize: 30 };
+const GRADE_OPTIONS = [
+  { value: '', label: '全部年级' },
+  ...['一', '二', '三', '四', '五', '六'].map(grade => ({
+    value: `${grade}年级`,
+    label: `${grade}年级`,
+  })),
+] satisfies SelectOption[];
+const SEMESTER_OPTIONS = [
+  { value: '', label: '全部学期' },
+  { value: '上学期', label: '上学期' },
+  { value: '下学期', label: '下学期' },
+] satisfies SelectOption[];
+const DIFFICULTY_OPTIONS = [
+  { value: '', label: '全部难度' },
+  { value: 'easy', label: '简单' },
+  { value: 'medium', label: '中等' },
+  { value: 'hard', label: '困难' },
+] satisfies SelectOption[];
+const TYPE_OPTIONS = [
+  { value: '', label: '全部题型' },
+  { value: 'fill_blank', label: '填空' },
+  { value: 'choice', label: '选择' },
+  { value: 'mixed', label: '综合' },
+] satisfies SelectOption[];
+const STATUS_OPTIONS = [
+  { value: '', label: '全部状态' },
+  { value: 'enabled', label: '已启用' },
+  { value: 'disabled', label: '已禁用' },
+] satisfies SelectOption[];
+
+type PendingAction =
+  | { type: 'batch'; enable: boolean; ids: string[] }
+  | { type: 'publish'; revision: number };
 const ACTION_LABELS: Record<string, string> = {
   seed: '初始化题库',
   update: '编辑题目',
@@ -161,6 +194,9 @@ export default function AdminQuestionBankPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [actionReason, setActionReason] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     const passcode = consumeConsolePasscode();
@@ -224,36 +260,49 @@ export default function AdminQuestionBankPage() {
     }
   };
 
-  const handleBatchStatus = async (enable: boolean) => {
+  const requestBatchStatus = (enable: boolean) => {
     const ids = [...selected];
     if (!ids.length) return;
-    const reason = enable
-      ? undefined
-      : window.prompt(`请输入禁用 ${ids.length} 道题的质量原因：`)?.trim();
-    if (!enable && !reason) return;
-    if (!window.confirm(`确认${enable ? '启用' : '禁用'}选中的 ${ids.length} 道题？`)) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await batchSetAdminQuestionStatus(ids, enable, reason);
-      await load();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '批量操作失败');
-    } finally {
-      setSaving(false);
-    }
+    setActionReason('');
+    setActionError(null);
+    setPendingAction({ type: 'batch', enable, ids });
   };
 
-  const handlePublish = async () => {
+  const requestPublish = () => {
     if (!result || !hasUnpublishedChanges) return;
-    if (!window.confirm('发布后学生端将读取当前草稿快照，确认继续？')) return;
+    setActionError(null);
+    setPendingAction({ type: 'publish', revision: result.meta.draftRevision });
+  };
+
+  const closeActionDialog = () => {
+    setPendingAction(null);
+    setActionReason('');
+    setActionError(null);
+  };
+
+  const handleConfirmAction = async () => {
+    if (!pendingAction) return;
+    const reason = actionReason.trim();
+    if (pendingAction.type === 'batch' && !pendingAction.enable && !reason) {
+      setActionError('请填写禁用原因，方便后续审计和修复。');
+      return;
+    }
     setSaving(true);
-    setError(null);
+    setActionError(null);
     try {
-      await publishAdminQuestionBank(result.meta.draftRevision);
+      if (pendingAction.type === 'batch') {
+        await batchSetAdminQuestionStatus(
+          pendingAction.ids,
+          pendingAction.enable,
+          pendingAction.enable ? undefined : reason,
+        );
+      } else {
+        await publishAdminQuestionBank(pendingAction.revision);
+      }
+      closeActionDialog();
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '发布失败');
+      setActionError(cause instanceof Error ? cause.message : '操作失败，请稍后重试。');
     } finally {
       setSaving(false);
     }
@@ -290,12 +339,6 @@ export default function AdminQuestionBankPage() {
     }
   };
 
-  const handleLogout = async () => {
-    await logoutAdmin().catch(() => undefined);
-    setAuthenticated(false);
-    setResult(null);
-  };
-
   if (authenticated === null) {
     return (
       <div className="min-h-screen bg-bg pt-28 text-center text-sm text-text-dim">
@@ -330,15 +373,12 @@ export default function AdminQuestionBankPage() {
               <Download size={15} /> 导出
             </Button>
             <Button
-              onClick={handlePublish}
+              onClick={requestPublish}
               variant="primary"
               disabled={!hasUnpublishedChanges || saving}
             >
               <UploadCloud size={15} />
               {hasUnpublishedChanges ? '发布草稿' : '已是最新'}
-            </Button>
-            <Button onClick={handleLogout} variant="ghost">
-              <LogOut size={15} /> 退出
             </Button>
           </div>
         </header>
@@ -353,13 +393,13 @@ export default function AdminQuestionBankPage() {
         )}
 
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <StatCard label="题目总量" value={result?.stats.total ?? '—'} />
-          <StatCard label="已启用" value={result?.stats.enabled ?? '—'} tone="text-green" />
-          <StatCard label="已禁用" value={result?.stats.disabled ?? '—'} tone="text-accent2" />
-          <StatCard label="草稿修订" value={result ? `r${result.meta.draftRevision}` : '—'} />
+          <StatCard label="题目总量" value={result?.stats.total ?? '-'} />
+          <StatCard label="已启用" value={result?.stats.enabled ?? '-'} tone="text-green" />
+          <StatCard label="已禁用" value={result?.stats.disabled ?? '-'} tone="text-accent2" />
+          <StatCard label="草稿修订" value={result ? `r${result.meta.draftRevision}` : '-'} />
           <StatCard
             label="线上版本"
-            value={result ? `r${result.meta.publishedRevision}` : '—'}
+            value={result ? `r${result.meta.publishedRevision}` : '-'}
             tone={hasUnpublishedChanges ? 'text-amber-500' : 'text-green'}
           />
         </section>
@@ -382,69 +422,45 @@ export default function AdminQuestionBankPage() {
               <Button type="submit">搜索</Button>
             </form>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              <select
+              <Select
                 value={filters.grade ?? ''}
-                onChange={event => updateFilter('grade', event.target.value || undefined)}
-                className="rounded-xl border border-border bg-surface2 px-3 py-2 text-sm"
-              >
-                <option value="">全部年级</option>
-                {['一', '二', '三', '四', '五', '六'].map(grade => (
-                  <option key={grade} value={`${grade}年级`}>{`${grade}年级`}</option>
-                ))}
-              </select>
-              <select
+                options={GRADE_OPTIONS}
+                onChange={value => updateFilter('grade', value || undefined)}
+                ariaLabel="按年级筛选"
+              />
+              <Select
                 value={filters.semester ?? ''}
-                onChange={event => updateFilter('semester', event.target.value || undefined)}
-                className="rounded-xl border border-border bg-surface2 px-3 py-2 text-sm"
-              >
-                <option value="">全部学期</option>
-                <option value="上学期">上学期</option>
-                <option value="下学期">下学期</option>
-              </select>
-              <select
+                options={SEMESTER_OPTIONS}
+                onChange={value => updateFilter('semester', value || undefined)}
+                ariaLabel="按学期筛选"
+              />
+              <Select
                 value={filters.difficulty ?? ''}
-                onChange={event =>
+                options={DIFFICULTY_OPTIONS}
+                onChange={value =>
                   updateFilter(
                     'difficulty',
-                    (event.target.value || undefined) as AdminQuestionFilters['difficulty'],
+                    (value || undefined) as AdminQuestionFilters['difficulty'],
                   )
                 }
-                className="rounded-xl border border-border bg-surface2 px-3 py-2 text-sm"
-              >
-                <option value="">全部难度</option>
-                <option value="easy">简单</option>
-                <option value="medium">中等</option>
-                <option value="hard">困难</option>
-              </select>
-              <select
+                ariaLabel="按难度筛选"
+              />
+              <Select
                 value={filters.type ?? ''}
-                onChange={event =>
-                  updateFilter(
-                    'type',
-                    (event.target.value || undefined) as AdminQuestionFilters['type'],
-                  )
+                options={TYPE_OPTIONS}
+                onChange={value =>
+                  updateFilter('type', (value || undefined) as AdminQuestionFilters['type'])
                 }
-                className="rounded-xl border border-border bg-surface2 px-3 py-2 text-sm"
-              >
-                <option value="">全部题型</option>
-                <option value="fill_blank">填空</option>
-                <option value="choice">选择</option>
-                <option value="mixed">综合</option>
-              </select>
-              <select
+                ariaLabel="按题型筛选"
+              />
+              <Select
                 value={filters.status ?? ''}
-                onChange={event =>
-                  updateFilter(
-                    'status',
-                    (event.target.value || undefined) as AdminQuestionFilters['status'],
-                  )
+                options={STATUS_OPTIONS}
+                onChange={value =>
+                  updateFilter('status', (value || undefined) as AdminQuestionFilters['status'])
                 }
-                className="rounded-xl border border-border bg-surface2 px-3 py-2 text-sm"
-              >
-                <option value="">全部状态</option>
-                <option value="enabled">已启用</option>
-                <option value="disabled">已禁用</option>
-              </select>
+                ariaLabel="按状态筛选"
+              />
             </div>
             <Button onClick={() => setFilters(DEFAULT_FILTERS)} variant="ghost">
               <RefreshCw size={14} /> 重置
@@ -456,7 +472,7 @@ export default function AdminQuestionBankPage() {
           <span className="text-sm text-text-dim">已选 {selected.size} 道</span>
           <Button
             size="sm"
-            onClick={() => handleBatchStatus(true)}
+            onClick={() => requestBatchStatus(true)}
             disabled={!selected.size || saving}
           >
             <CheckCircle2 size={14} /> 批量启用
@@ -464,7 +480,7 @@ export default function AdminQuestionBankPage() {
           <Button
             size="sm"
             variant="danger"
-            onClick={() => handleBatchStatus(false)}
+            onClick={() => requestBatchStatus(false)}
             disabled={!selected.size || saving}
           >
             <XCircle size={14} /> 批量禁用
@@ -704,6 +720,67 @@ export default function AdminQuestionBankPage() {
         />
       )}
       {audit && <AuditDrawer entries={audit} onClose={() => setAudit(null)} />}
+      <Dialog
+        open={pendingAction !== null}
+        title={
+          pendingAction?.type === 'publish'
+            ? '发布当前草稿？'
+            : pendingAction?.enable
+              ? '启用所选题目？'
+              : '禁用所选题目？'
+        }
+        description={
+          pendingAction?.type === 'publish'
+            ? `发布后学生端将读取草稿修订 r${pendingAction.revision}。`
+            : pendingAction
+              ? `本次操作包含 ${pendingAction.ids.length} 道题，提交后会写入审计记录。`
+              : undefined
+        }
+        dismissible={!saving}
+        onClose={closeActionDialog}
+        footer={
+          <>
+            <Button onClick={closeActionDialog} disabled={saving}>
+              取消
+            </Button>
+            <Button
+              variant={
+                pendingAction?.type === 'batch' && !pendingAction.enable ? 'danger' : 'primary'
+              }
+              onClick={handleConfirmAction}
+              disabled={saving}
+            >
+              {saving
+                ? '处理中…'
+                : pendingAction?.type === 'publish'
+                  ? '确认发布'
+                  : pendingAction?.enable
+                    ? '确认启用'
+                    : '确认禁用'}
+            </Button>
+          </>
+        }
+      >
+        {pendingAction?.type === 'batch' && !pendingAction.enable && (
+          <label className="block text-sm font-medium text-text">
+            禁用原因
+            <textarea
+              data-dialog-autofocus
+              value={actionReason}
+              onChange={event => setActionReason(event.target.value)}
+              rows={4}
+              maxLength={500}
+              placeholder="说明题目需要下线的原因，方便后续修复"
+              className="mt-2 w-full resize-y rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-text outline-none transition-colors placeholder:text-text-dim/60 focus:border-accent focus:ring-2 focus:ring-accent/20"
+            />
+          </label>
+        )}
+        {actionError && (
+          <p className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-500">
+            {actionError}
+          </p>
+        )}
+      </Dialog>
     </main>
   );
 }

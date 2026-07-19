@@ -1,6 +1,7 @@
 import { Save, X } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
 import Button from '../../components/ui/Button';
+import Select, { type SelectOption } from '../../components/ui/Select';
 import type { QuestionPatch } from '../../data/adminQuestionBank';
 import type { BlankInputType, Question, QuestionType } from '../../types';
 
@@ -29,6 +30,17 @@ interface EditorState {
   enable: boolean;
   checkMessage: string;
 }
+
+const DIFFICULTY_OPTIONS = [
+  { value: 'easy', label: '简单' },
+  { value: 'medium', label: '中等' },
+  { value: 'hard', label: '困难' },
+] satisfies SelectOption[];
+const TYPE_OPTIONS = [
+  { value: 'fill_blank', label: '填空题' },
+  { value: 'choice', label: '选择题' },
+  { value: 'mixed', label: '综合题' },
+] satisfies SelectOption[];
 
 function toEditorState(question: Question): EditorState {
   return {
@@ -196,30 +208,18 @@ export default function QuestionEditor({ question, saving, onClose, onSave }: Qu
             onChange={value => update('semester', value)}
           />
 
-          <label className="flex flex-col gap-1.5 text-sm text-text-dim">
-            <span className="font-medium text-text">难度</span>
-            <select
-              value={state.difficulty}
-              onChange={event => update('difficulty', event.target.value as Question['difficulty'])}
-              className="rounded-xl border border-border bg-surface2 px-3 py-2 text-text outline-none focus:border-accent"
-            >
-              <option value="easy">简单</option>
-              <option value="medium">中等</option>
-              <option value="hard">困难</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1.5 text-sm text-text-dim">
-            <span className="font-medium text-text">题型</span>
-            <select
-              value={state.type}
-              onChange={event => update('type', event.target.value as QuestionType)}
-              className="rounded-xl border border-border bg-surface2 px-3 py-2 text-text outline-none focus:border-accent"
-            >
-              <option value="fill_blank">填空题</option>
-              <option value="choice">选择题</option>
-              <option value="mixed">综合题</option>
-            </select>
-          </label>
+          <Select
+            label="难度"
+            value={state.difficulty}
+            options={DIFFICULTY_OPTIONS}
+            onChange={value => update('difficulty', value as Question['difficulty'])}
+          />
+          <Select
+            label="题型"
+            value={state.type}
+            options={TYPE_OPTIONS}
+            onChange={value => update('type', value as QuestionType)}
+          />
 
           <div className="sm:col-span-2">
             <TextField

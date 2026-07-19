@@ -120,10 +120,6 @@ export function loginAdmin(passcode: string): Promise<{ authenticated: true; exp
   });
 }
 
-export function logoutAdmin(): Promise<{ authenticated: false }> {
-  return adminFetch('/api/admin/session', { method: 'DELETE' });
-}
-
 export function listAdminQuestions(filters: AdminQuestionFilters): Promise<AdminQuestionList> {
   const params = new URLSearchParams({
     page: String(filters.page),
