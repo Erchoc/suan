@@ -45,18 +45,14 @@ function AccountStory() {
         一个家长身份，未来承接孩子档案、订阅权益和跨设备学习记录。当前设备上的已有记录仍保存在本机。
       </p>
 
-      <div className="relative mt-10 hidden max-w-[38rem] overflow-hidden border-y border-border py-7 pr-24 lg:block">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-2 -top-12 font-serif text-[9rem] font-semibold leading-none text-accent/[0.07]"
-        >
-          12
+      <div className="mt-10 hidden max-w-[38rem] grid-cols-[auto_1fr] items-center gap-8 border-y border-border py-6 lg:grid">
+        <div className="border-r border-border pr-8">
+          <p className="text-xs font-medium text-text-dim">从一道题开始</p>
+          <p className="mt-2 whitespace-nowrap font-serif text-3xl font-semibold tracking-wide text-text">
+            12 + □ = 20
+          </p>
         </div>
-        <p className="text-sm font-medium text-text-dim">从一道题开始</p>
-        <p className="mt-2 font-serif text-3xl font-semibold tracking-wide text-text">
-          12 + □ = 20
-        </p>
-        <div className="mt-7 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-3 text-sm">
+        <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-3 text-sm">
           <span className="font-medium">完成练习</span>
           <ArrowRight size={16} className="text-accent" aria-hidden />
           <span className="font-medium">发现重点</span>
@@ -70,15 +66,15 @@ function AccountStory() {
 
 function AccountLoading() {
   return (
-    <main className="min-h-[100dvh] bg-bg pt-14" aria-busy="true">
-      <div className="mx-auto grid min-h-[calc(100dvh-3.5rem)] w-full max-w-[1240px] gap-8 px-5 py-8 sm:px-8 sm:py-12 lg:grid-cols-[minmax(0,1.08fr)_minmax(24rem,0.92fr)] lg:items-center lg:gap-14 lg:px-10 lg:py-10 xl:gap-20">
-        <div className="animate-pulse space-y-5 motion-reduce:animate-none">
+    <main className="min-h-[calc(100dvh_-_var(--tab-bar-h))] bg-bg pt-14" aria-busy="true">
+      <div className="mx-auto grid min-h-[calc(100dvh_-_3.5rem_-_var(--tab-bar-h))] w-full max-w-[1240px] place-items-center px-4 py-4 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1.08fr)_minmax(24rem,0.92fr)] lg:gap-14 lg:px-10 lg:py-10 xl:gap-20">
+        <div className="hidden animate-pulse space-y-5 motion-reduce:animate-none lg:block">
           <div className="h-4 w-20 rounded bg-surface2" />
           <div className="h-14 max-w-lg rounded-xl bg-surface2" />
           <div className="h-14 max-w-md rounded-xl bg-surface2" />
           <div className="h-6 max-w-xl rounded bg-surface2" />
         </div>
-        <div className="min-h-[25rem] animate-pulse rounded-2xl border border-border bg-surface p-7 motion-reduce:animate-none">
+        <div className="min-h-[25rem] w-full max-w-xl animate-pulse rounded-2xl border border-border bg-surface p-6 motion-reduce:animate-none lg:max-w-none lg:p-7">
           <div className="h-7 w-40 rounded bg-surface2" />
           <div className="mt-4 h-4 w-64 rounded bg-surface2" />
           <div className="mt-10 h-14 rounded-xl bg-surface2" />
@@ -108,23 +104,15 @@ function StatusBanner({ error, message }: { error: string | null; message: strin
 
 function AuthUnavailable() {
   return (
-    <div className="pt-2">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 text-accent">
-        <Sparkles size={23} aria-hidden />
-      </div>
-      <h3 className="mt-5 font-serif text-2xl font-semibold">家长账号准备中</h3>
-      <p className="mt-3 leading-7 text-text-dim">
-        手机号与微信登录正在接入。现在仍可正常做题、诊断和复习，学习功能不受影响。
-      </p>
-
-      <div className="mt-7 rounded-xl bg-surface2 px-4">
-        <div className="flex items-center gap-3 py-4">
+    <div>
+      <div className="rounded-xl bg-surface2 px-4">
+        <div className="flex items-center gap-3 py-3.5 sm:py-4">
           <Phone size={18} className="shrink-0 text-accent" aria-hidden />
           <span className="flex-1 text-sm font-medium">手机验证码</span>
           <span className="text-sm text-text-dim">即将开放</span>
         </div>
         <div className="border-t border-border" />
-        <div className="flex items-center gap-3 py-4">
+        <div className="flex items-center gap-3 py-3.5 sm:py-4">
           <MessageCircle size={18} className="shrink-0 text-accent" aria-hidden />
           <span className="flex-1 text-sm font-medium">微信扫码</span>
           <span className="text-sm text-text-dim">即将开放</span>
@@ -133,12 +121,12 @@ function AuthUnavailable() {
 
       <Link
         to="/assessment"
-        className="mt-7 inline-flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-accent px-6 py-3 font-semibold text-bg transition-colors hover:bg-amber-500 active:translate-y-px"
+        className="mt-5 inline-flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-accent px-6 py-3 font-semibold text-bg transition-colors hover:bg-amber-500 active:translate-y-px sm:mt-7"
       >
         先去练习
         <ArrowRight size={18} aria-hidden />
       </Link>
-      <div className="mt-5 flex gap-2 text-xs leading-6 text-text-dim">
+      <div className="mt-4 flex gap-2 text-xs leading-5 text-text-dim sm:mt-5 sm:leading-6">
         <ShieldCheck size={16} className="mt-1 shrink-0 text-accent" aria-hidden />
         当前设备记录仍只保存在本机，开通登录不会自动上传已有内容。
       </div>
@@ -202,6 +190,16 @@ export default function Account() {
   const phoneAvailable = Boolean(config?.methods.phone);
   const wechatAvailable = Boolean(config?.methods.wechat);
   const authAvailable = phoneAvailable || wechatAvailable;
+  const panelTitle = session.authenticated
+    ? '家长账号'
+    : authAvailable
+      ? '认领孩子的学习入口'
+      : '家长账号准备中';
+  const panelDescription = session.authenticated
+    ? '管理当前家长身份与已绑定的登录方式。'
+    : authAvailable
+      ? '选择适合当前设备的方式登录。'
+      : '手机号与微信登录正在接入，学习功能仍可正常使用。';
 
   const handleSend = async () => {
     if (!phoneValid || sending || countdown > 0) return;
@@ -254,32 +252,30 @@ export default function Account() {
   if (loading) return <AccountLoading />;
 
   return (
-    <main className="min-h-[100dvh] bg-bg pt-14">
-      <div className="mx-auto grid min-h-[calc(100dvh-3.5rem)] w-full max-w-[1240px] gap-8 px-5 py-8 sm:px-8 sm:py-12 lg:grid-cols-[minmax(0,1.08fr)_minmax(24rem,0.92fr)] lg:items-center lg:gap-14 lg:px-10 lg:py-10 xl:gap-20">
-        <AccountStory />
+    <main className="min-h-[calc(100dvh_-_var(--tab-bar-h))] bg-bg pt-14">
+      <div className="mx-auto grid min-h-[calc(100dvh_-_3.5rem_-_var(--tab-bar-h))] w-full max-w-[1240px] place-items-center px-4 py-4 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1.08fr)_minmax(24rem,0.92fr)] lg:gap-14 lg:px-10 lg:py-10 xl:gap-20">
+        <div className="hidden lg:block">
+          <AccountStory />
+        </div>
 
         <section
           aria-labelledby="login-panel-title"
-          className="rounded-2xl border border-border bg-surface p-6 shadow-[0_24px_70px_color-mix(in_srgb,var(--accent)_8%,transparent)] sm:p-8"
+          className="w-full max-w-xl rounded-2xl border border-border bg-surface p-5 shadow-[0_24px_70px_color-mix(in_srgb,var(--accent)_8%,transparent)] sm:p-8 lg:max-w-none"
         >
-          <div className="mb-7">
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-accent/10 text-accent">
+          <div className="mb-5 sm:mb-7">
+            <div className="hidden items-center justify-center rounded-xl bg-accent/10 text-accent sm:mb-4 sm:flex sm:h-11 sm:w-11">
               {session.authenticated ? (
                 <CheckCircle2 size={22} aria-hidden />
+              ) : !authAvailable ? (
+                <Sparkles size={22} aria-hidden />
               ) : (
                 <BookOpenCheck size={22} aria-hidden />
               )}
             </div>
             <h2 id="login-panel-title" className="font-serif text-2xl font-semibold sm:text-3xl">
-              {session.authenticated ? '家长账号' : '认领孩子的学习入口'}
+              {panelTitle}
             </h2>
-            <p className="mt-2 text-sm leading-6 text-text-dim">
-              {session.authenticated
-                ? '管理当前家长身份与已绑定的登录方式。'
-                : authAvailable
-                  ? '选择适合当前设备的方式登录。'
-                  : '登录服务开放前，所有学习功能仍可直接使用。'}
-            </p>
+            <p className="mt-2 text-sm leading-6 text-text-dim">{panelDescription}</p>
           </div>
 
           <StatusBanner error={error} message={message} />
@@ -473,13 +469,15 @@ export default function Account() {
                 </form>
               ) : wechatAvailable ? (
                 <div>
-                  <div className="flex min-h-52 items-center justify-center rounded-xl bg-surface2 px-6 py-8 text-center">
+                  <div className="flex items-center justify-center rounded-xl bg-surface2 px-4 py-5 text-center sm:min-h-52 sm:px-6 sm:py-8">
                     <div>
-                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/10 text-accent">
-                        <MessageCircle size={32} aria-hidden />
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 text-accent sm:h-16 sm:w-16 sm:rounded-2xl">
+                        <MessageCircle className="h-6 w-6 sm:h-8 sm:w-8" aria-hidden />
                       </div>
-                      <h3 className="mt-5 font-serif text-xl font-semibold">使用微信扫码登录</h3>
-                      <p className="mt-2 text-sm leading-6 text-text-dim">
+                      <h3 className="mt-3 font-serif text-lg font-semibold sm:mt-5 sm:text-xl">
+                        使用微信扫码登录
+                      </h3>
+                      <p className="mt-1 text-sm leading-5 text-text-dim sm:mt-2 sm:leading-6">
                         将打开微信官方扫码页面，完成后自动返回算道。
                       </p>
                     </div>
@@ -488,7 +486,7 @@ export default function Account() {
                     type="button"
                     variant="primary"
                     size="lg"
-                    className="mt-5 w-full"
+                    className="mt-4 w-full sm:mt-5"
                     onClick={() =>
                       window.location.assign('/api/auth/wechat/start?returnTo=/account')
                     }
